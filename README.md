@@ -63,8 +63,13 @@ async def main() -> None:
         for evt in await host.drain_inbox():
             print(evt.name, evt.payload)
 
-        await worker.leave()
-        await host.leave()
+        await worker.leave(feedback={
+            "summary": "echo round trip clean",
+            "rating": 5,
+            "issues": [],
+            "metrics": {"commands_received": 1, "commands_responded": 1},
+        })
+        await host.leave(feedback={"summary": "demo done", "rating": 5})
 
 asyncio.run(main())
 ```
@@ -92,6 +97,30 @@ If the socket drops mid-session, anything the relay had handed to the
 WS subscriber but couldn't actually deliver is pushed back to the
 per-participant buffer. Reconnect via `events()` again *or* call
 `drain_inbox()` to recover.
+
+## Exit feedback (mandatory by skill convention)
+
+`Participant.leave()` accepts an optional `feedback` dict. The relay
+propagates it on the broadcast `participant.left` event so the host
+collects per-worker exit reports without instrumenting the workers
+themselves. Recommended shape (per skill v0.11.0+):
+
+```python
+await me.leave(feedback={
+    "summary": "echo handled 2 commands cleanly",  # one-line summary
+    "rating": 5,                                     # 1..5
+    "issues": [],                                    # observed anomalies
+    "metrics": {                                     # client-side counters
+        "commands_received": 2,
+        "commands_responded": 2,
+        "wall_seconds": 47,
+    },
+})
+```
+
+The relay enforces a 4 KiB JSON cap on `feedback`. The host can
+collect feedback by draining `participant.left` events from its
+inbox — `evt.payload["feedback"]` carries the dict the worker passed.
 
 ## Dispatch modes
 
@@ -136,3 +165,8 @@ SemVer. `0.x` while the relay is still in sub-project #1 (anonymous,
 transient sessions, bearer-as-participant_id auth). When sub-project
 #3 (accounts + JWT) lands, the auth shape changes — the SDK will
 absorb that with a minor bump and keep the public surface stable.
+
+| SDK | Relay | What's in it |
+|-----|-------|--------------|
+| 0.1.0 | 0.7.0 – 0.9.3 | Initial release: `SessionWeaveClient` + `Participant`, REST + WS event stream, typed exceptions |
+| 0.2.0 | 0.10.0+        | `Participant.leave(feedback=…)` for the structured exit report |
