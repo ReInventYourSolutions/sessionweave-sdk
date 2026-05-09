@@ -170,11 +170,24 @@ class Participant:
         _raise_for_status(r)
         return [Event(name=m["name"], payload=m["payload"]) for m in r.json()["messages"]]
 
-    async def leave(self) -> None:
-        r = await self._owner._http.delete(
+    async def leave(self, *, feedback: dict[str, Any] | None = None) -> None:
+        """Leave the session, optionally attaching exit ``feedback``.
+
+        Skill v0.11.0+ makes ``feedback`` part of the standard close-out
+        flow. The relay propagates it on the ``participant.left`` event
+        broadcast to remaining participants — host drivers can collect
+        per-worker exit reports without instrumenting the workers
+        themselves. ``feedback`` is a free-form JSON object; the
+        relay enforces a 4 KiB cap. The skill's recommended shape is
+        ``{"summary": "...", "rating": 1..5, "issues": [...], "metrics": {...}}``.
+        """
+        request = self._owner._http.build_request(
+            "DELETE",
             f"/v1/sessions/{self.session_id}/participants/me",
             headers=self._auth,
+            json={"feedback": feedback} if feedback is not None else None,
         )
+        r = await self._owner._http.send(request)
         _raise_for_status(r)
 
     @asynccontextmanager

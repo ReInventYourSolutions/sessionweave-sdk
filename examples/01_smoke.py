@@ -54,8 +54,17 @@ async def main() -> None:
         for evt in await host.drain_inbox():
             print(f"  host saw {evt.name}")
 
-        await worker.leave()
-        await host.leave()
+        await worker.leave(feedback={
+            "summary": "echo round trip clean",
+            "rating": 5,
+            "issues": [],
+            "metrics": {"commands_received": 1, "commands_responded": 1},
+        })
+        await host.leave(feedback={
+            "summary": "demo host done",
+            "rating": 5,
+            "issues": [],
+        })
         print("done")
 
 
