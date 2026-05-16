@@ -54,6 +54,22 @@ class ValidationError(SessionWeaveError):
     """
 
 
+class InvalidDeliveryModeError(SessionWeaveError):
+    """Raised when ``wait_for_event`` is called on a non-pull participant."""
+
+
+class WaitAlreadyInFlightError(SessionWeaveError):
+    """Raised when a second ``wait_for_event`` is attempted while one is active."""
+
+
+class ParticipantEvictedError(SessionWeaveError):
+    """Raised when the participant is removed from the session mid-wait."""
+
+
+class TooManyWaitsError(SessionWeaveError):
+    """Raised when the relay's per-session concurrent-wait cap is exceeded."""
+
+
 _CODE_MAP: dict[str, type[SessionWeaveError]] = {
     "session_not_found": SessionNotFoundError,
     "not_in_session": NotInSessionError,
@@ -62,6 +78,10 @@ _CODE_MAP: dict[str, type[SessionWeaveError]] = {
     "invalid_config": ValidationError,
     "invalid_dispatch_filters": ValidationError,
     "invalid_targets": ValidationError,
+    "invalid_delivery_mode": InvalidDeliveryModeError,
+    "wait_already_in_flight": WaitAlreadyInFlightError,
+    "participant_evicted": ParticipantEvictedError,
+    "too_many_waits": TooManyWaitsError,
 }
 
 

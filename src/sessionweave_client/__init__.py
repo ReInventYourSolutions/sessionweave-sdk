@@ -20,27 +20,37 @@ from sessionweave_client.client import (
 )
 from sessionweave_client.errors import (
     AlreadyRespondedError,
+    InvalidDeliveryModeError,
     NotInSessionError,
+    ParticipantEvictedError,
     SessionNotFoundError,
     SessionWeaveError,
+    TooManyWaitsError,
     ValidationError,
+    WaitAlreadyInFlightError,
 )
 from sessionweave_client.types import (
     Event,
     SessionInfo,
+    WaitForEventResult,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "AlreadyRespondedError",
     "Event",
+    "InvalidDeliveryModeError",
     "NotInSessionError",
+    "ParticipantEvictedError",
     "Participant",
     "SessionInfo",
     "SessionNotFoundError",
     "SessionWeaveClient",
     "SessionWeaveError",
+    "TooManyWaitsError",
     "ValidationError",
+    "WaitAlreadyInFlightError",
+    "WaitForEventResult",
     "__version__",
 ]

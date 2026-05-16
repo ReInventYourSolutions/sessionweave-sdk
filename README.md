@@ -98,6 +98,32 @@ WS subscriber but couldn't actually deliver is pushed back to the
 per-participant buffer. Reconnect via `events()` again *or* call
 `drain_inbox()` to recover.
 
+## Bounded long-poll (`wait_for_event`)
+
+`Participant.wait_for_event()` blocks server-side until a matching event
+arrives or the timeout elapses — zero inference cost while waiting. Use it
+instead of a busy-poll loop when your worker can't keep a WebSocket open
+but still wants event-driven behaviour.
+
+```python
+# Bounded long-poll loop — keeps a turn alive without busy-polling
+while True:
+    result = await me.wait_for_event(
+        names=["command.received", "supervisor.note"],
+        timeout_seconds=60,
+    )
+    if result.messages:
+        for evt in result.messages:
+            await handle(evt)
+    elif result.timed_out:
+        if should_exit():
+            break
+```
+
+Non-matching events stay in the buffer and remain visible to subsequent
+`drain_inbox` or `wait_for_event` calls. Returns a `WaitForEventResult`
+with fields `messages: list[Event]` and `timed_out: bool`.
+
 ## Exit feedback (mandatory by skill convention)
 
 `Participant.leave()` accepts an optional `feedback` dict. The relay
@@ -146,6 +172,10 @@ branch on `except` rather than inspecting strings:
 | `not_in_session`        | `NotInSessionError`      |
 | `already_responded`     | `AlreadyRespondedError`  |
 | `validation_error` and friends | `ValidationError` |
+| `invalid_delivery_mode` | `InvalidDeliveryModeError` |
+| `wait_already_in_flight` | `WaitAlreadyInFlightError` |
+| `participant_evicted`   | `ParticipantEvictedError` |
+| `too_many_waits`        | `TooManyWaitsError`      |
 | anything else           | `SessionWeaveError`      |
 
 All inherit from `SessionWeaveError`, which carries the original
@@ -170,3 +200,4 @@ absorb that with a minor bump and keep the public surface stable.
 |-----|-------|--------------|
 | 0.1.0 | 0.7.0 – 0.9.3 | Initial release: `SessionWeaveClient` + `Participant`, REST + WS event stream, typed exceptions |
 | 0.2.0 | 0.10.0+        | `Participant.leave(feedback=…)` for the structured exit report |
+| 0.3.0 | 0.13.2+        | `Participant.wait_for_event(names=, timeout_seconds=)` long-poll primitive; `WaitForEventResult`; four new typed exceptions |

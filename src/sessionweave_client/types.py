@@ -37,6 +37,14 @@ class Event:
     payload: dict[str, Any]
 
 
+@dataclass(slots=True)
+class WaitForEventResult:
+    """Return value of ``Participant.wait_for_event``."""
+
+    messages: list[Event]
+    timed_out: bool
+
+
 # Dispatch enums match the relay's schema. ``"all"`` and ``"any"`` require
 # at least one of ``target.role`` or ``target.capability``; ``"specific"``
 # uses ``target.participant_ids``.

@@ -17,6 +17,7 @@ from sessionweave_client.types import (
     Event,
     ResponseStatus,
     SessionInfo,
+    WaitForEventResult,
 )
 
 DEFAULT_BASE_URL = "https://relay.sessionweave.com"
@@ -169,6 +170,46 @@ class Participant:
         )
         _raise_for_status(r)
         return [Event(name=m["name"], payload=m["payload"]) for m in r.json()["messages"]]
+
+    async def wait_for_event(
+        self,
+        *,
+        names: list[str] | None = None,
+        timeout_seconds: float = 60.0,
+    ) -> WaitForEventResult:
+        """Long-poll for events on this participant's inbox.
+
+        Pull-mode primitive. Blocks server-side until at least one event
+        matching the optional ``names`` filter arrives in the buffer, or
+        the ``timeout_seconds`` budget elapses. Non-matching events are
+        re-buffered and remain visible to subsequent ``drain_inbox`` or
+        ``wait_for_event`` calls.
+
+        Token cost on the caller side is zero while the relay is
+        blocked — no inferences happen until the call returns.
+
+        Raises:
+            InvalidDeliveryModeError: caller is not in pull mode.
+            WaitAlreadyInFlightError: another wait is already running for
+                this participant.
+            ParticipantEvictedError: the participant was removed from
+                the session while waiting.
+            TooManyWaitsError: per-session concurrent-wait cap reached.
+        """
+        body: dict[str, Any] = {"timeout_seconds": timeout_seconds}
+        if names is not None:
+            body["names"] = names
+        r = await self._owner._http.post(
+            f"/v1/sessions/{self.session_id}/participants/me/inbox/wait",
+            headers=self._auth,
+            json=body,
+        )
+        _raise_for_status(r)
+        data = r.json()
+        return WaitForEventResult(
+            messages=[Event(name=m["name"], payload=m["payload"]) for m in data["messages"]],
+            timed_out=bool(data["timed_out"]),
+        )
 
     async def leave(self, *, feedback: dict[str, Any] | None = None) -> None:
         """Leave the session, optionally attaching exit ``feedback``.
