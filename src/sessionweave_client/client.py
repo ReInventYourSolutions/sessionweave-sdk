@@ -249,6 +249,14 @@ class Participant:
         any in-flight events the relay had handed to the WS subscriber
         but couldn't deliver are pushed back to the per-participant
         buffer — call ``drain_inbox`` on reconnect to recover them.
+
+        IMPORTANT: don't block the asyncio loop while this context is
+        open. A synchronous ``subprocess.run`` or other >10s blocking
+        call inside ``async with me.events():`` starves the websockets
+        ping/pong handler, the relay closes the connection, and the
+        stream raises ``StopAsyncIteration`` after the next ``__anext__``.
+        Wrap blocking work with ``await asyncio.to_thread(...)`` so the
+        loop keeps servicing the WS.
         """
         ws_base = _ws_base(self._owner.base_url)
         url = (
