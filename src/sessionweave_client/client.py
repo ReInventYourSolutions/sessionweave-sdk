@@ -142,7 +142,16 @@ class Participant:
         dispatch: DispatchMode = "specific",
         target: dict[str, Any] | None = None,
         timeout_seconds: int | None = None,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
+        """Dispatch a command.
+
+        Pass ``command_id`` (a caller-generated stable string, typically
+        ``uuid.uuid4().hex``) to make retries idempotent: a second
+        ``send`` with the same id returns the original dispatch's
+        response without creating a duplicate event or tracker.
+        Available on relay 0.16.0+.
+        """
         body: dict[str, Any] = {
             "dispatch": dispatch,
             "target": target or {},
@@ -150,6 +159,8 @@ class Participant:
         }
         if timeout_seconds is not None:
             body["timeout_seconds"] = timeout_seconds
+        if command_id is not None:
+            body["command_id"] = command_id
         r = await self._owner._http.post(
             f"/v1/sessions/{self.session_id}/commands",
             headers=self._auth,
@@ -337,13 +348,111 @@ class SessionWeaveClient:
         *,
         purpose: dict[str, Any] | None = None,
         config: dict[str, int] | None = None,
+        persistence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Create a new session.
+
+        ``persistence`` (relay 0.16.0+, opt-in) is a dict ``{mode, ttl_seconds?}``:
+
+        - ``{"mode": "ttl", "ttl_seconds": <int>}`` keeps the session's full
+          state on disk for at most ``ttl_seconds`` of inactivity, then
+          purges automatically.
+        - ``{"mode": "until_deleted"}`` keeps it until the host explicitly
+          deletes (bounded by a relay-wide safety cap, default 90 days).
+
+        When ``persistence`` is None (the default) the relay holds the
+        session only in RAM — **Zero Data Retention** by design. The
+        relay never writes a session's contents to disk in that case.
+
+        The response always includes a one-time ``creator_token``: store
+        it to authorise future ``delete_session()`` calls. The token is
+        the only way to delete the session unless a relay operator
+        configures ``SW_SUPERVISOR_ADMIN_TOKEN``.
+        """
         body: dict[str, Any] = {}
         if purpose is not None:
             body["purpose"] = purpose
         if config is not None:
             body["config"] = config
+        if persistence is not None:
+            body["persistence"] = persistence
         r = await self._http.post("/v1/sessions", json=body)
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def delete_session(
+        self,
+        session_id: str,
+        *,
+        creator_token: str,
+    ) -> dict[str, Any]:
+        """Delete a session (relay 0.16.0+).
+
+        Accepts the per-session ``creator_token`` returned at
+        ``create_session``. Successful deletes return
+        ``{"deleted_at": "<iso8601>"}``. After deletion the session and
+        its events are purged from the relay; subsequent ``describe`` or
+        ``get_events`` calls return ``SessionNotFoundError``.
+
+        Operators with the relay's ``SW_SUPERVISOR_ADMIN_TOKEN`` can also
+        delete any session — pass that as ``creator_token`` here.
+        """
+        r = await self._http.request(
+            "DELETE",
+            f"/v1/sessions/{session_id}",
+            headers={"authorization": f"Bearer {creator_token}"},
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def get_events(
+        self,
+        session_id: str,
+        *,
+        after_seq: int | None = None,
+        before_seq: int | None = None,
+        kind: list[str] | str | None = None,
+        participant_id: list[str] | str | None = None,
+        limit: int = 200,
+        order: str = "asc",
+    ) -> dict[str, Any]:
+        """Browse the timeline of a persisted session (relay 0.16.0+).
+
+        Returns ``{session_id, events, next_cursor, has_more, session_state}``.
+        ``session_state`` is ``"hot"`` if the session is currently in RAM,
+        ``"cold"`` if it's only in the persistence store (no hydrate is
+        triggered by this call), or ``"ended"`` if it has been marked
+        ended (events still readable until purge).
+
+        Raises ``NoHistoryError`` (HTTP 409) when called on an ephemeral
+        session (one created without ``persistence``).
+
+        Filters ``kind`` and ``participant_id`` accept either a single
+        string or a list; cursor via ``after_seq`` / ``before_seq``.
+        """
+        params: dict[str, str] = {"limit": str(limit), "order": order}
+        if after_seq is not None:
+            params["after_seq"] = str(after_seq)
+        if before_seq is not None:
+            params["before_seq"] = str(before_seq)
+        # Filter out empty strings so a sloppy ``[..., ""]`` doesn't produce
+        # a trailing-comma CSV that the relay would parse as a phantom
+        # empty-string filter.
+        if kind is not None:
+            kind_csv = kind if isinstance(kind, str) else ",".join(
+                k for k in kind if k
+            )
+            if kind_csv:
+                params["kind"] = kind_csv
+        if participant_id is not None:
+            pid_csv = participant_id if isinstance(participant_id, str) else ",".join(
+                p for p in participant_id if p
+            )
+            if pid_csv:
+                params["participant_id"] = pid_csv
+        r = await self._http.get(
+            f"/v1/sessions/{session_id}/events", params=params,
+        )
         _raise_for_status(r)
         return dict(r.json())
 

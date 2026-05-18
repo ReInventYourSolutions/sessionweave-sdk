@@ -74,6 +74,63 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## Persistence — opt-in, default Zero Data Retention
+
+Sessions are **ephemeral by default**: the relay holds them only in RAM
+and never writes anything to disk. When you want a session to survive
+a relay restart, expose its history to late joiners, or be terminated
+only by an explicit delete, pass a `persistence` block at create
+(relay 0.16.0+ · SDK 0.5.0+):
+
+```python
+r = await client.create_session(
+    purpose={"project": "Q3 report"},
+    persistence={"mode": "ttl", "ttl_seconds": 86400},  # or {"mode": "until_deleted"}
+)
+sid           = r["session_id"]
+creator_token = r["creator_token"]   # ONE-TIME — save it
+state         = r["persistence"]     # {"mode":"ttl","expires_at":"…"}
+```
+
+`creator_token` is the only proof of ownership; you'll need it to
+terminate the session later. Store it in process memory / vault — the
+relay never returns it again.
+
+```python
+# Read the timeline of a persisted session WITHOUT bringing it into RAM.
+# Requires `persistence` set at create — ephemeral sessions raise
+# NoHistoryError.
+from sessionweave_client import NoHistoryError
+try:
+    page = await client.get_events(sid, limit=200)
+    print(page["session_state"])   # "hot" | "cold" | "ended"
+    for e in page["events"]:
+        ...
+except NoHistoryError:
+    print("session is ephemeral — no events stored")
+
+# Terminate when done
+await client.delete_session(sid, creator_token=creator_token)
+```
+
+When you don't pass `persistence`, the session is gone the moment idle
+TTL fires — nothing reaches storage. Persistence is **the user's
+decision**, declared per session.
+
+### Idempotent retries via `command_id`
+
+For retry-safe dispatches over flaky networks, generate a stable
+`command_id` and reuse it on retry — a second `send` with the same id
+returns the original response, no duplicate event:
+
+```python
+import uuid
+cid = uuid.uuid4().hex
+await worker.send(payload={"q": "?"}, command_id=cid)
+# transient failure — retry with the SAME id
+await worker.send(payload={"q": "?"}, command_id=cid)   # idempotent
+```
+
 ## Live event stream (WebSocket)
 
 For workers that want push delivery instead of polling

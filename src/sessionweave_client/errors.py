@@ -70,6 +70,27 @@ class TooManyWaitsError(SessionWeaveError):
     """Raised when the relay's per-session concurrent-wait cap is exceeded."""
 
 
+class PermissionDeniedError(SessionWeaveError):
+    """Raised when an operation lacks the right token — typically
+    ``session_delete`` with a bad ``creator_token``, or a brute-force
+    attempt that hit the per-sid rate limiter (HTTP 403). Relay 0.16.0+.
+    """
+
+
+class NoHistoryError(SessionWeaveError):
+    """Raised when ``get_events`` is called on an ephemeral session —
+    one created without a ``persistence`` config. The relay returns
+    HTTP 409 ``no_history``. Relay 0.16.0+.
+    """
+
+
+class PersistenceFailedError(SessionWeaveError):
+    """Raised when a persistence operation fails server-side: disk full,
+    permission denied, integrity check failure (HTTP 503 or 500).
+    Relay 0.16.0+.
+    """
+
+
 _CODE_MAP: dict[str, type[SessionWeaveError]] = {
     "session_not_found": SessionNotFoundError,
     "not_in_session": NotInSessionError,
@@ -82,17 +103,37 @@ _CODE_MAP: dict[str, type[SessionWeaveError]] = {
     "wait_already_in_flight": WaitAlreadyInFlightError,
     "participant_evicted": ParticipantEvictedError,
     "too_many_waits": TooManyWaitsError,
+    "permission_denied": PermissionDeniedError,
+    "no_history": NoHistoryError,
+    "persistence_failed": PersistenceFailedError,
+    "persistence_corrupted": PersistenceFailedError,
 }
 
 
 def from_response(status: int, body: dict[str, object] | None) -> SessionWeaveError:
-    """Build the right exception for a relay error envelope."""
-    err = body.get("error") if isinstance(body, dict) else None
+    """Build the right exception for a relay error envelope.
+
+    The relay returns one of two shapes (history reasons):
+
+      * nested:  ``{"error": {"code": "<code>", "message": "<msg>"}}``
+      * flat:    ``{"error": "<code>", "message": "<msg>"}``
+
+    Both are recognised — codes map through ``_CODE_MAP`` and unknown
+    codes fall back to the base ``SessionWeaveError``.
+    """
+    if not isinstance(body, dict):
+        return SessionWeaveError("http_error",
+                                  f"HTTP {status}" if body is None else str(body),
+                                  status=status)
+    err = body.get("error")
     if isinstance(err, dict):
         code = str(err.get("code") or "http_error")
         message = str(err.get("message") or "")
+    elif isinstance(err, str):
+        code = err
+        message = str(body.get("message") or err)
     else:
         code = "http_error"
-        message = str(body) if body is not None else f"HTTP {status}"
+        message = str(body)
     cls = _CODE_MAP.get(code, SessionWeaveError)
     return cls(code, message, status=status)
