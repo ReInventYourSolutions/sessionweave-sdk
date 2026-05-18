@@ -53,7 +53,14 @@ class Participant:
     (browsers can't set custom headers on a WebSocket handshake).
     """
 
-    __slots__ = ("_owner", "_role", "participant_id", "session_id", "token")
+    __slots__ = (
+        "_owner",
+        "_role",
+        "participant_id",
+        "relay_epoch",
+        "session_id",
+        "token",
+    )
 
     def __init__(
         self,
@@ -63,12 +70,21 @@ class Participant:
         participant_id: str,
         token: str,
         role: str | None,
+        relay_epoch: int = 0,
     ) -> None:
         self._owner = owner
         self.session_id = session_id
         self.participant_id = participant_id
         self.token = token
         self._role = role
+        # Per-process startup epoch the relay returned at join time.
+        # On a future ``session_resume`` (or any subsequent ``GET
+        # /v1/info``) a different value means the relay has restarted
+        # — the participant should treat any in-memory cursor
+        # (``last_acked_seq``, buffered events) as invalid. Requires
+        # relay >= 0.15.0; older relays return 0 so consumers can
+        # default-check.
+        self.relay_epoch = relay_epoch
 
     @property
     def role(self) -> str | None:
@@ -373,6 +389,7 @@ class SessionWeaveClient:
             participant_id=out["participant_id"],
             token=out["participant_token"],
             role=out.get("role"),
+            relay_epoch=int(out.get("relay_epoch", 0) or 0),
         )
 
     async def __aexit_cleanup__(self) -> None:  # pragma: no cover - convenience
