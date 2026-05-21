@@ -86,15 +86,26 @@ only by an explicit delete, pass a `persistence` block at create
 r = await client.create_session(
     purpose={"project": "Q3 report"},
     persistence={"mode": "ttl", "ttl_seconds": 86400},  # or {"mode": "until_deleted"}
+    creator_id="alice@team",  # optional, relay 0.17.0+ — echoed back
 )
 sid           = r["session_id"]
 creator_token = r["creator_token"]   # ONE-TIME — save it
+creator_id    = r["creator_id"]      # echoed back (uuid4 if not passed)
 state         = r["persistence"]     # {"mode":"ttl","expires_at":"…"}
 ```
 
-`creator_token` is the only proof of ownership; you'll need it to
-terminate the session later. Store it in process memory / vault — the
-relay never returns it again.
+`creator_token` is the proof of ownership: you need it to terminate
+the session, AND (relay 0.17.0+) it's the bearer for the per-session
+firehose at
+`GET /v1/sessions/{sid}/firehose?token=<creator_token>` — the
+supervisor stream that delivers every event in the session, including
+chat between other participants. Store it in process memory / vault;
+the relay never returns it again.
+
+`creator_id` is an opaque display handle the relay echoes back. Pass
+your own (a user id, an agent label) and you'll get it back verbatim;
+omit it and the relay mints a uuid4. Not persisted on the relay in
+v0.17.0 — it's a client-side display aid for "created by X" surfaces.
 
 ```python
 # Read the timeline of a persisted session WITHOUT bringing it into RAM.

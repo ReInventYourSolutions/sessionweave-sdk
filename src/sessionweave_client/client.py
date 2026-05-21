@@ -349,6 +349,7 @@ class SessionWeaveClient:
         purpose: dict[str, Any] | None = None,
         config: dict[str, int] | None = None,
         persistence: dict[str, Any] | None = None,
+        creator_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new session.
 
@@ -364,9 +365,22 @@ class SessionWeaveClient:
         session only in RAM — **Zero Data Retention** by design. The
         relay never writes a session's contents to disk in that case.
 
+        ``creator_id`` (relay 0.17.0+) is an optional opaque handle
+        identifying the creator (e.g. a cockpit user_id). If you pass
+        one, the relay echoes it back verbatim in the response; if you
+        don't, the relay mints a uuid4 so the response always has one.
+        Use it on the client side to display "created by X" without
+        exposing the creator_token. Not persisted on the relay yet —
+        relay-side enforcement (creator-only ops bound to a user
+        identity) is a future change once relay auth lands.
+
         The response always includes a one-time ``creator_token``: store
-        it to authorise future ``delete_session()`` calls. The token is
-        the only way to delete the session unless a relay operator
+        it to authorise future ``delete_session()`` calls AND as the
+        bearer for the per-session firehose (relay 0.17.0+ —
+        ``GET /v1/sessions/{sid}/firehose?token=<creator_token>`` opens
+        the supervisor stream that delivers every event in the session,
+        including chat between other participants). The token is the
+        only way to delete the session unless a relay operator
         configures ``SW_SUPERVISOR_ADMIN_TOKEN``.
         """
         body: dict[str, Any] = {}
@@ -376,6 +390,8 @@ class SessionWeaveClient:
             body["config"] = config
         if persistence is not None:
             body["persistence"] = persistence
+        if creator_id is not None:
+            body["creator_id"] = creator_id
         r = await self._http.post("/v1/sessions", json=body)
         _raise_for_status(r)
         return dict(r.json())
