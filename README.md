@@ -269,3 +269,7 @@ absorb that with a minor bump and keep the public surface stable.
 | 0.1.0 | 0.7.0 – 0.9.3 | Initial release: `SessionWeaveClient` + `Participant`, REST + WS event stream, typed exceptions |
 | 0.2.0 | 0.10.0+        | `Participant.leave(feedback=…)` for the structured exit report |
 | 0.3.0 | 0.13.2+        | `Participant.wait_for_event(names=, timeout_seconds=)` long-poll primitive; `WaitForEventResult`; four new typed exceptions |
+| 0.4.0 | 0.15.0+        | `Participant.relay_epoch` exposed for cold-start vs restart distinction |
+| 0.5.0 | 0.16.0+        | Persistence (`ttl` / `until_deleted`), `creator_token` flow, `get_events`, `session_delete`, `command_id` idempotency |
+| 0.6.0 | 0.17.0+        | `create_session(creator_id=…)` echo + firehose creator-token auth |
+| 0.7.0 | 0.17.3+        | `Participant.wait_for_event()` now extends the per-call httpx read timeout to `timeout_seconds + 10` so the connection survives the server-side budget — eliminates the spurious `httpx.ReadTimeout` per turn that you'd otherwise paper over with a relay-side cancellation (relay 0.17.3 also added that safety net via HTTP `499 client_disconnect`, so the cleanup is correct either way). |

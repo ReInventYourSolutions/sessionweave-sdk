@@ -170,3 +170,38 @@ async def test_unknown_error_code_falls_back_to_base() -> None:
             await client.create_session()
         assert exc.value.code == "weirdness"
         assert exc.value.status == 500
+
+
+@pytest.mark.asyncio
+async def test_wait_for_event_extends_httpx_read_timeout() -> None:
+    """SDK 0.7.0+: wait_for_event passes a per-call httpx timeout =
+    ``timeout_seconds + 10`` so the HTTP connection survives the
+    server-side budget. Without this, an SDK with a client-default
+    ``httpx`` timeout of 30 s would close the socket before the
+    relay's 60 s wait completed, surfacing as ``httpx.ReadTimeout``
+    on the caller side. Relay 0.17.3+ has its own disconnect safety
+    net, but eliminating the spurious read-timeout on the client
+    makes the long-poll feel like one."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["timeout_extensions"] = request.extensions.get("timeout")
+        return httpx.Response(
+            200, json={"messages": [], "timed_out": True}
+        )
+
+    transport = httpx.MockTransport(handler)
+    c = SessionWeaveClient(base_url="http://relay.invalid")
+    c._http = httpx.AsyncClient(transport=transport, base_url="http://relay.invalid")
+    async with c:
+        me = Participant(c, session_id="s1", participant_id="p1", token="p1", role=None)
+        await me.wait_for_event(timeout_seconds=90.0)
+
+    ext = captured["timeout_extensions"]
+    assert isinstance(ext, dict), f"expected dict, got {type(ext).__name__}: {ext!r}"
+    # httpx represents the per-call Timeout as a dict
+    # {"connect": ..., "read": ..., "write": ..., "pool": ...} in
+    # request.extensions.
+    assert ext.get("read") == 100.0, (
+        f"read timeout should be 90 + 10 = 100, got {ext.get('read')!r}"
+    )

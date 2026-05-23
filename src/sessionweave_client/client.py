@@ -215,6 +215,17 @@ class Participant:
         Token cost on the caller side is zero while the relay is
         blocked — no inferences happen until the call returns.
 
+        The HTTP read timeout for *this call* is automatically extended
+        to ``timeout_seconds + 10`` so the connection survives the
+        full server-side budget. Without this override, the client's
+        per-client ``httpx`` default (typically 5–30 s) would close the
+        socket before the relay finishes waiting; the relay's
+        ``0.17.3+`` disconnect-cancellation path then voids the wait
+        and the next call proceeds cleanly — but every aborted call
+        still produces an ``httpx.ReadTimeout`` you'd otherwise have
+        to retry by hand. The per-call extension makes the long-poll
+        feel like a real long-poll.
+
         Raises:
             InvalidDeliveryModeError: caller is not in pull mode.
             WaitAlreadyInFlightError: another wait is already running for
@@ -226,10 +237,18 @@ class Participant:
         body: dict[str, Any] = {"timeout_seconds": timeout_seconds}
         if names is not None:
             body["names"] = names
+        # Per-call read timeout = server-side budget + 10 s slack so the
+        # HTTP connection outlives the relay's own deadline. See the
+        # docstring above for the failure mode this avoids.
+        per_call_timeout = httpx.Timeout(
+            timeout=float(timeout_seconds) + 10.0,
+            connect=10.0,
+        )
         r = await self._owner._http.post(
             f"/v1/sessions/{self.session_id}/participants/me/inbox/wait",
             headers=self._auth,
             json=body,
+            timeout=per_call_timeout,
         )
         _raise_for_status(r)
         data = r.json()
