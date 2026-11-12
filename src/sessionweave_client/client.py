@@ -400,7 +400,7 @@ class SessionWeaveClient:
         the supervisor stream that delivers every event in the session,
         including chat between other participants). The token is the
         only way to delete the session unless a relay operator
-        configures ``SW_SUPERVISOR_ADMIN_TOKEN``.
+        configures ``SW_ADMIN_TOKEN``.
         """
         body: dict[str, Any] = {}
         if purpose is not None:
@@ -429,7 +429,7 @@ class SessionWeaveClient:
         its events are purged from the relay; subsequent ``describe`` or
         ``get_events`` calls return ``SessionNotFoundError``.
 
-        Operators with the relay's ``SW_SUPERVISOR_ADMIN_TOKEN`` can also
+        Operators with the relay's ``SW_ADMIN_TOKEN`` can also
         delete any session — pass that as ``creator_token`` here.
         """
         r = await self._http.request(
