@@ -30,7 +30,9 @@ import asyncio, os
 from sessionweave_client import SessionWeaveClient
 async def main():
     async with SessionWeaveClient() as c:
-        host = await c.join(os.environ['SW_SESSION_ID'], role='host')
+        host = await c.join(
+            os.environ['SW_SESSION_ID'], join_token=os.environ['SW_JOIN_TOKEN'], role='host',
+        )
         cmd = await host.send(
             payload={'prompt': 'Explain SessionWeave in one sentence.'},
             dispatch='all',

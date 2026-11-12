@@ -44,10 +44,12 @@ def _bearer(token: str) -> dict[str, str]:
     return {"authorization": f"Bearer {token}"}
 
 
-def _parse_invite(link: str) -> tuple[str, str]:
+def _parse_invite(link: str) -> tuple[str, str, str, str]:
     """Extract ``(session_id, join_token)`` from an invite link.
 
-    Accepts ``swv://host/<sid>?jt=<jt>``, ``swvs://...`` and the HTTP(S)
+    Returns ``(session_id, join_token, http_scheme, netloc)`` where
+    ``http_scheme`` is ``http`` for ``swv``/``http`` and ``https`` for
+    ``swvs``/``https``. Accepts ``swv://host/<sid>?jt=<jt>``, ``swvs://...`` and the HTTP(S)
     form ``https://host/invite/<sid>?jt=<jt>``. Surrounding whitespace
     is ignored. Raises ``ValueError`` when the link is malformed.
     """
@@ -66,7 +68,8 @@ def _parse_invite(link: str) -> tuple[str, str]:
     jts = parse_qs(parsed.query).get("jt", [])
     if not jts or not jts[0]:
         raise ValueError("invite link is missing its join token (jt)")
-    return sid, jts[0]
+    scheme = "https" if parsed.scheme in ("swvs", "https") else "http"
+    return sid, jts[0], scheme, parsed.netloc.lower()
 
 
 class Participant:
@@ -78,8 +81,8 @@ class Participant:
     does — typically the whole lifetime of a worker process.
 
     Authentication: ``token`` is the secret ``participant_token`` returned
-    at join time (distinct from ``participant_id``) and is sent as ``Authorization: Bearer <token>``
-    on every REST call, and as ``?token=<token>`` on the WS upgrade
+    at join time (distinct from ``participant_id``) and is sent as
+    ``Authorization: Bearer <token>`` on every REST call, and as ``?token=<token>`` on the WS upgrade
     (browsers can't set custom headers on a WebSocket handshake).
     """
 
@@ -628,11 +631,18 @@ class SessionWeaveClient:
 
     async def join_link(self, link: str, **kw: Any) -> Participant:
         """Join from an invite link (``swv(s)://host/<sid>?jt=<jt>`` or
-        ``http(s)://host/invite/<sid>?jt=<jt>``). Only the session id and
-        join token are taken from the link; the request goes to this
-        client's ``base_url``. Extra keyword args go to ``join()``.
-        Raises ``ValueError`` on a malformed link."""
-        sid, jt = _parse_invite(link)
+        ``http(s)://host/invite/<sid>?jt=<jt>``). Extra keyword args go to
+        ``join()``. Raises ``ValueError`` on a malformed link, or when the
+        link's host or scheme (swv/http vs swvs/https) does not match this
+        client's ``base_url`` - the join token is never sent to a relay
+        the link does not name."""
+        sid, jt, scheme, netloc = _parse_invite(link)
+        base = urlparse(self.base_url)
+        if scheme != base.scheme or netloc != base.netloc.lower():
+            raise ValueError(
+                f"invite link points at {scheme}://{netloc}, "
+                f"but this client talks to {self.base_url}"
+            )
         return await self.join(sid, join_token=jt, **kw)
 
     async def __aexit_cleanup__(self) -> None:  # pragma: no cover - convenience

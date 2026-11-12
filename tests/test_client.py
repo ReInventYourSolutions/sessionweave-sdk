@@ -271,6 +271,7 @@ async def test_join_requires_join_token() -> None:
 )
 async def test_join_link_parses_links(link: str) -> None:
     client, seen = _recording_client({("POST", "/v1/sessions/s1/participants"): _JOIN_OK})
+    client.base_url = "https://relay.invalid" if "s://" in link else "http://relay.invalid"
     async with client:
         me = await client.join_link(link, role="worker")
     assert seen[0].headers["authorization"] == "Bearer tok123"
@@ -366,3 +367,22 @@ async def test_flat_error_shape_maps_code() -> None:
             await client.access("s1", "bad")
     assert ei.value.code == "rate_limited"
     assert ei.value.status == 429
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "link",
+    [
+        "swvs://evil.invalid/s1?jt=tok",
+        "swv://relay.invalid/s1?jt=tok",  # http link vs https client
+        "https://evil.invalid/invite/s1?jt=tok",
+        "http://relay.invalid:8080/invite/s1?jt=tok",
+    ],
+)
+async def test_join_link_rejects_other_relay(link: str) -> None:
+    client, seen = _recording_client({})
+    client.base_url = "https://relay.invalid"
+    async with client:
+        with pytest.raises(ValueError):
+            await client.join_link(link)
+    assert seen == []
