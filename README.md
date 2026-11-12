@@ -304,3 +304,4 @@ absorbed with a minor bump.
 | 0.5.0 | 0.16.0+        | Persistence (`ttl` / `until_deleted`), `creator_token` flow, `get_events`, `session_delete`, `command_id` idempotency |
 | 0.6.0 | 0.17.0+        | `create_session(creator_id=…)` echo + firehose creator-token auth |
 | 0.7.0 | 0.17.3+        | `Participant.wait_for_event()` now extends the per-call httpx read timeout to `timeout_seconds + 10` so the connection survives the server-side budget — eliminates the spurious `httpx.ReadTimeout` per turn that you'd otherwise paper over with a relay-side cancellation (relay 0.17.3 also added that safety net via HTTP `499 client_disconnect`, so the cleanup is correct either way). |
+| 0.8.0 | 0.28.0+        | Join tokens, secret participant tokens, credential minting (`creator_token`, supervisor tokens), token-authenticated reads; `join_link` refuses a mismatched relay host. BREAKING: no session-id or participant_id authentication |
