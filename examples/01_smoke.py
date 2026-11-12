@@ -27,8 +27,12 @@ async def main() -> None:
         sid = sess["session_id"]
         print(f"created session {sid}")
 
-        host = await client.join(sid, role="host", capabilities=["broadcast"])
-        worker = await client.join(sid, role="worker", capabilities=["respond"])
+        host = await client.join(
+            sid, join_token=sess["join_token"], role="host", capabilities=["broadcast"]
+        )
+        worker = await client.join(
+            sid, join_token=sess["join_token"], role="worker", capabilities=["respond"]
+        )
 
         cmd = await host.send(
             payload={"q": "ping"},

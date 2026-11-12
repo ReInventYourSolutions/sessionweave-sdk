@@ -11,8 +11,8 @@ Two surfaces are exposed:
 
 The client speaks the relay's REST surface (``/v1/...``) for everything
 *except* live event push, which uses ``wss://.../events?token=<bearer>``.
-The Bearer token is the participant_id today (sub-project #1 contract);
-sub-project #3 will swap it for a JWT without changing this surface.
+Tokens: joining takes a short-lived join token; a joined participant
+authenticates with its secret participant_token (never the participant_id).
 """
 from sessionweave_client.client import (
     Participant,

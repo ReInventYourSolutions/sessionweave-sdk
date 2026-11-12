@@ -5,6 +5,7 @@ the relay's own test suite plus the runnable examples in
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -68,7 +69,9 @@ async def test_create_and_join_returns_bound_participant() -> None:
     })
     async with client:
         sess = await client.create_session(purpose={"kind": "demo"})
-        me = await client.join(sess["session_id"], role="worker", capabilities=["respond"])
+        me = await client.join(
+            sess["session_id"], join_token="jt", role="worker", capabilities=["respond"]
+        )
         assert isinstance(me, Participant)
         assert me.session_id == "s1"
         assert me.token == "p1"
@@ -85,7 +88,7 @@ async def test_describe_unknown_session_raises_typed_error() -> None:
     })
     async with client:
         with pytest.raises(SessionNotFoundError) as exc:
-            await client.describe("missing")
+            await client.describe("missing", token="t")
         assert exc.value.code == "session_not_found"
         assert exc.value.status == 404
 
@@ -205,3 +208,161 @@ async def test_wait_for_event_extends_httpx_read_timeout() -> None:
     assert ext.get("read") == 100.0, (
         f"read timeout should be 90 + 10 = 100, got {ext.get('read')!r}"
     )
+
+
+def _recording_client(
+    responses: dict[tuple[str, str], httpx.Response],
+) -> tuple[SessionWeaveClient, list[httpx.Request]]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        key = (request.method, request.url.path)
+        if key not in responses:
+            raise AssertionError(f"unexpected request {key}")
+        return responses[key]
+
+    c = SessionWeaveClient(base_url="http://relay.invalid")
+    c._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://relay.invalid"
+    )
+    return c, seen
+
+
+_JOIN_OK = httpx.Response(
+    201,
+    json={
+        "participant_id": "pid1",
+        "participant_token": "secret-ptok",
+        "role": "worker",
+        "session_id": "s1",
+    },
+)
+
+
+@pytest.mark.asyncio
+async def test_join_sends_join_token_as_bearer() -> None:
+    client, seen = _recording_client({("POST", "/v1/sessions/s1/participants"): _JOIN_OK})
+    async with client:
+        me = await client.join("s1", join_token="jt-1", role="worker")
+    assert seen[0].headers["authorization"] == "Bearer jt-1"
+    assert me.participant_id == "pid1"
+    assert me.token == "secret-ptok"
+    assert me.token != me.participant_id
+
+
+@pytest.mark.asyncio
+async def test_join_requires_join_token() -> None:
+    async with SessionWeaveClient(base_url="http://relay.invalid") as client:
+        with pytest.raises(TypeError):
+            await client.join("s1", role="worker")  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "link",
+    [
+        "swv://relay.invalid/s1?jt=tok123",
+        "swvs://relay.invalid/s1?jt=tok123",
+        "http://relay.invalid/invite/s1?jt=tok123",
+        "https://relay.invalid/invite/s1?jt=tok123",
+        "  \n swvs://relay.invalid/s1?jt=tok123  \n",
+    ],
+)
+async def test_join_link_parses_links(link: str) -> None:
+    client, seen = _recording_client({("POST", "/v1/sessions/s1/participants"): _JOIN_OK})
+    async with client:
+        me = await client.join_link(link, role="worker")
+    assert seen[0].headers["authorization"] == "Bearer tok123"
+    assert me.session_id == "s1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "link",
+    ["swv://relay.invalid/s1", "swv://relay.invalid/?jt=x", "ftp://relay.invalid/s1?jt=x", ""],
+)
+async def test_join_link_rejects_malformed(link: str) -> None:
+    async with SessionWeaveClient(base_url="http://relay.invalid") as client:
+        with pytest.raises(ValueError):
+            await client.join_link(link)
+
+
+@pytest.mark.asyncio
+async def test_describe_and_get_events_send_token() -> None:
+    client, seen = _recording_client({
+        ("GET", "/v1/sessions/s1"): httpx.Response(
+            200,
+            json={"session_id": "s1", "expires_at": "z", "config": {}, "purpose": None,
+                  "roster": []},
+        ),
+        ("GET", "/v1/sessions/s1/events"): httpx.Response(
+            200, json={"session_id": "s1", "events": [], "has_more": False},
+        ),
+    })
+    async with client:
+        info = await client.describe("s1", token="sup-tok")
+        page = await client.get_events("s1", token="sup-tok", limit=5)
+    assert info.session_id == "s1"
+    assert page["events"] == []
+    assert [r.headers["authorization"] for r in seen] == ["Bearer sup-tok"] * 2
+
+
+@pytest.mark.asyncio
+async def test_delete_session_uses_token() -> None:
+    client, seen = _recording_client({
+        ("DELETE", "/v1/sessions/s1"): httpx.Response(200, json={"deleted_at": "t"}),
+    })
+    async with client:
+        out = await client.delete_session("s1", "creator-tok")
+    assert out == {"deleted_at": "t"}
+    assert seen[0].headers["authorization"] == "Bearer creator-tok"
+
+
+@pytest.mark.asyncio
+async def test_update_purpose_moved_to_client() -> None:
+    assert not hasattr(Participant, "update_purpose")
+    client, seen = _recording_client({
+        ("PATCH", "/v1/sessions/s1/purpose"): httpx.Response(200, json={"purpose": {"a": 1}}),
+    })
+    async with client:
+        out = await client.update_purpose("s1", "creator-tok", {"a": 1})
+    assert out == {"purpose": {"a": 1}}
+    assert seen[0].headers["authorization"] == "Bearer creator-tok"
+    assert json.loads(seen[0].content) == {"purpose": {"a": 1}}
+
+
+@pytest.mark.asyncio
+async def test_credential_minting_and_access() -> None:
+    client, seen = _recording_client({
+        ("POST", "/v1/sessions/s1/join-tokens"): httpx.Response(
+            201, json={"join_token": "jt2", "expires_at": "z", "invite_url": "u",
+                       "invite_link": "l"}),
+        ("POST", "/v1/sessions/s1/supervisor-tokens"): httpx.Response(
+            201, json={"token_id": "tid", "supervisor_token": "st"}),
+        ("GET", "/v1/sessions/s1/supervisor-tokens"): httpx.Response(
+            200, json=[{"token_id": "tid", "created_at": "c", "revoked_at": None}]),
+        ("DELETE", "/v1/sessions/s1/supervisor-tokens/tid"): httpx.Response(204),
+        ("GET", "/v1/sessions/s1/access"): httpx.Response(
+            200, json={"role": "creator", "participant_id": None}),
+    })
+    async with client:
+        assert (await client.mint_join_token("s1", "ct"))["join_token"] == "jt2"
+        assert (await client.mint_supervisor_token("s1", "ct"))["token_id"] == "tid"
+        listed = await client.list_supervisor_tokens("s1", "ct")
+        assert listed[0]["token_id"] == "tid"
+        assert await client.revoke_supervisor_token("s1", "ct", "tid") is None
+        assert (await client.access("s1", "ct"))["role"] == "creator"
+    assert all(r.headers["authorization"] == "Bearer ct" for r in seen)
+
+
+@pytest.mark.asyncio
+async def test_flat_error_shape_maps_code() -> None:
+    client, _ = _recording_client({
+        ("GET", "/v1/sessions/s1/access"): httpx.Response(429, json={"error": "rate_limited"}),
+    })
+    async with client:
+        with pytest.raises(SessionWeaveError) as ei:
+            await client.access("s1", "bad")
+    assert ei.value.code == "rate_limited"
+    assert ei.value.status == 429

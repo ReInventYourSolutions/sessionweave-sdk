@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
 import websockets
@@ -40,6 +40,35 @@ def _raise_for_status(r: httpx.Response) -> None:
     raise from_response(r.status_code, body)
 
 
+def _bearer(token: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {token}"}
+
+
+def _parse_invite(link: str) -> tuple[str, str]:
+    """Extract ``(session_id, join_token)`` from an invite link.
+
+    Accepts ``swv://host/<sid>?jt=<jt>``, ``swvs://...`` and the HTTP(S)
+    form ``https://host/invite/<sid>?jt=<jt>``. Surrounding whitespace
+    is ignored. Raises ``ValueError`` when the link is malformed.
+    """
+    parsed = urlparse(link.strip())
+    if parsed.scheme not in ("swv", "swvs", "http", "https"):
+        raise ValueError(f"unsupported invite link scheme: {parsed.scheme!r}")
+    segments = [seg for seg in parsed.path.split("/") if seg]
+    if parsed.scheme in ("http", "https"):
+        if len(segments) != 2 or segments[0] != "invite":
+            raise ValueError("invite URL must look like /invite/<session_id>?jt=<token>")
+        sid = segments[1]
+    else:
+        if len(segments) != 1:
+            raise ValueError("invite link must look like swv://host/<session_id>?jt=<token>")
+        sid = segments[0]
+    jts = parse_qs(parsed.query).get("jt", [])
+    if not jts or not jts[0]:
+        raise ValueError("invite link is missing its join token (jt)")
+    return sid, jts[0]
+
+
 class Participant:
     """A bound participant handle.
 
@@ -48,7 +77,8 @@ class Participant:
     client stays open as long as the underlying ``SessionWeaveClient``
     does — typically the whole lifetime of a worker process.
 
-    Authentication: ``token`` is sent as ``Authorization: Bearer <token>``
+    Authentication: ``token`` is the secret ``participant_token`` returned
+    at join time (distinct from ``participant_id``) and is sent as ``Authorization: Bearer <token>``
     on every REST call, and as ``?token=<token>`` on the WS upgrade
     (browsers can't set custom headers on a WebSocket handshake).
     """
@@ -122,15 +152,6 @@ class Participant:
             f"/v1/sessions/{self.session_id}/participants/me",
             headers=self._auth,
             json=body,
-        )
-        _raise_for_status(r)
-        return dict(r.json())
-
-    async def update_purpose(self, purpose: dict[str, Any]) -> dict[str, Any]:
-        r = await self._owner._http.patch(
-            f"/v1/sessions/{self.session_id}/purpose",
-            headers=self._auth,
-            json={"purpose": purpose},
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -330,7 +351,9 @@ class SessionWeaveClient:
 
         async with SessionWeaveClient() as client:
             session = await client.create_session(purpose={"kind": "demo"})
-            me = await client.join(session["session_id"], role="worker")
+            me = await client.join(
+                session["session_id"], join_token=session["join_token"], role="worker",
+            )
             ...
 
     For one-off scripts, ``SessionWeaveClient()`` followed by
@@ -393,14 +416,16 @@ class SessionWeaveClient:
         relay-side enforcement (creator-only ops bound to a user
         identity) is a future change once relay auth lands.
 
-        The response always includes a one-time ``creator_token``: store
-        it to authorise future ``delete_session()`` calls AND as the
-        bearer for the per-session firehose (relay 0.17.0+ —
-        ``GET /v1/sessions/{sid}/firehose?token=<creator_token>`` opens
-        the supervisor stream that delivers every event in the session,
-        including chat between other participants). The token is the
-        only way to delete the session unless a relay operator
-        configures ``SW_ADMIN_TOKEN``.
+        The response is returned unchanged and carries one-time
+        credentials (store them; the relay never returns them again):
+        ``creator_token`` (delete the session, update its purpose, mint
+        join / supervisor tokens), ``supervisor_token`` (+
+        ``supervisor_token_id``; read-only oversight and the firehose),
+        and a first ``join_token`` (valid 15 minutes, multi-use) with
+        its ready-made ``invite_url`` / ``invite_link``. Hand the join
+        token (or the link) to participants and call ``join()`` /
+        ``join_link()``. A relay operator's ``SW_ADMIN_TOKEN`` is
+        accepted wherever a creator token is.
         """
         body: dict[str, Any] = {}
         if purpose is not None:
@@ -415,27 +440,77 @@ class SessionWeaveClient:
         _raise_for_status(r)
         return dict(r.json())
 
-    async def delete_session(
-        self,
-        session_id: str,
-        *,
-        creator_token: str,
-    ) -> dict[str, Any]:
-        """Delete a session (relay 0.16.0+).
+    async def delete_session(self, session_id: str, token: str) -> dict[str, Any]:
+        """Delete a session. ``token`` is the ``creator_token`` (or the
+        relay operator's ``SW_ADMIN_TOKEN``).
 
-        Accepts the per-session ``creator_token`` returned at
-        ``create_session``. Successful deletes return
-        ``{"deleted_at": "<iso8601>"}``. After deletion the session and
-        its events are purged from the relay; subsequent ``describe`` or
-        ``get_events`` calls return ``SessionNotFoundError``.
-
-        Operators with the relay's ``SW_ADMIN_TOKEN`` can also
-        delete any session — pass that as ``creator_token`` here.
+        Successful deletes return ``{"deleted_at": "<iso8601>"}``. After
+        deletion the session and its events are purged from the relay.
         """
         r = await self._http.request(
-            "DELETE",
-            f"/v1/sessions/{session_id}",
-            headers={"authorization": f"Bearer {creator_token}"},
+            "DELETE", f"/v1/sessions/{session_id}", headers=_bearer(token),
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def update_purpose(
+        self, session_id: str, creator_token: str, purpose: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Replace the session's purpose. Creator (or admin) token only."""
+        r = await self._http.patch(
+            f"/v1/sessions/{session_id}/purpose",
+            headers=_bearer(creator_token),
+            json={"purpose": purpose},
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def mint_join_token(self, session_id: str, creator_token: str) -> dict[str, Any]:
+        """Mint a fresh join token (15 min, multi-use). Returns
+        ``{join_token, expires_at, invite_url, invite_link}``."""
+        r = await self._http.post(
+            f"/v1/sessions/{session_id}/join-tokens", headers=_bearer(creator_token),
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def mint_supervisor_token(
+        self, session_id: str, creator_token: str
+    ) -> dict[str, Any]:
+        """Mint an additional supervisor token. Returns
+        ``{token_id, supervisor_token}`` (the secret is shown once)."""
+        r = await self._http.post(
+            f"/v1/sessions/{session_id}/supervisor-tokens",
+            headers=_bearer(creator_token),
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def list_supervisor_tokens(
+        self, session_id: str, creator_token: str
+    ) -> list[dict[str, Any]]:
+        """List supervisor tokens as ``[{token_id, created_at, revoked_at}]``."""
+        r = await self._http.get(
+            f"/v1/sessions/{session_id}/supervisor-tokens",
+            headers=_bearer(creator_token),
+        )
+        _raise_for_status(r)
+        return list(r.json())
+
+    async def revoke_supervisor_token(
+        self, session_id: str, creator_token: str, token_id: str
+    ) -> None:
+        """Revoke one supervisor token by its ``token_id``."""
+        r = await self._http.delete(
+            f"/v1/sessions/{session_id}/supervisor-tokens/{token_id}",
+            headers=_bearer(creator_token),
+        )
+        _raise_for_status(r)
+
+    async def access(self, session_id: str, token: str) -> dict[str, Any]:
+        """Introspect any valid token: returns ``{role, participant_id}``."""
+        r = await self._http.get(
+            f"/v1/sessions/{session_id}/access", headers=_bearer(token),
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -444,6 +519,7 @@ class SessionWeaveClient:
         self,
         session_id: str,
         *,
+        token: str,
         after_seq: int | None = None,
         before_seq: int | None = None,
         kind: list[str] | str | None = None,
@@ -452,6 +528,9 @@ class SessionWeaveClient:
         order: str = "asc",
     ) -> dict[str, Any]:
         """Browse the timeline of a persisted session (relay 0.16.0+).
+
+        ``token`` may be a participant, join, supervisor, creator or
+        admin token.
 
         Returns ``{session_id, events, next_cursor, has_more, session_state}``.
         ``session_state`` is ``"hot"`` if the session is currently in RAM,
@@ -486,13 +565,15 @@ class SessionWeaveClient:
             if pid_csv:
                 params["participant_id"] = pid_csv
         r = await self._http.get(
-            f"/v1/sessions/{session_id}/events", params=params,
+            f"/v1/sessions/{session_id}/events", params=params, headers=_bearer(token),
         )
         _raise_for_status(r)
         return dict(r.json())
 
-    async def describe(self, session_id: str) -> SessionInfo:
-        r = await self._http.get(f"/v1/sessions/{session_id}")
+    async def describe(self, session_id: str, *, token: str) -> SessionInfo:
+        """Snapshot a session. ``token``: participant, join, supervisor,
+        creator or admin token."""
+        r = await self._http.get(f"/v1/sessions/{session_id}", headers=_bearer(token))
         _raise_for_status(r)
         body = r.json()
         return SessionInfo(
@@ -507,12 +588,17 @@ class SessionWeaveClient:
         self,
         session_id: str,
         *,
+        join_token: str,
         role: str | None = None,
         objective: str | None = None,
         capabilities: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         delivery_mode: DeliveryMode | None = None,
     ) -> Participant:
+        """Join a session. ``join_token`` (15 min, multi-use) is sent as the
+        Bearer; the relay answers with a secret ``participant_token`` that
+        the returned ``Participant`` uses from then on. A creator token or
+        the admin token is also accepted in ``join_token``."""
         body: dict[str, Any] = {}
         if role is not None:
             body["role"] = role
@@ -524,7 +610,11 @@ class SessionWeaveClient:
             body["metadata"] = metadata
         if delivery_mode is not None:
             body["delivery_mode"] = delivery_mode
-        r = await self._http.post(f"/v1/sessions/{session_id}/participants", json=body)
+        r = await self._http.post(
+            f"/v1/sessions/{session_id}/participants",
+            headers=_bearer(join_token),
+            json=body,
+        )
         _raise_for_status(r)
         out = r.json()
         return Participant(
@@ -535,6 +625,15 @@ class SessionWeaveClient:
             role=out.get("role"),
             relay_epoch=int(out.get("relay_epoch", 0) or 0),
         )
+
+    async def join_link(self, link: str, **kw: Any) -> Participant:
+        """Join from an invite link (``swv(s)://host/<sid>?jt=<jt>`` or
+        ``http(s)://host/invite/<sid>?jt=<jt>``). Only the session id and
+        join token are taken from the link; the request goes to this
+        client's ``base_url``. Extra keyword args go to ``join()``.
+        Raises ``ValueError`` on a malformed link."""
+        sid, jt = _parse_invite(link)
+        return await self.join(sid, join_token=jt, **kw)
 
     async def __aexit_cleanup__(self) -> None:  # pragma: no cover - convenience
         with suppress(SessionWeaveError):
