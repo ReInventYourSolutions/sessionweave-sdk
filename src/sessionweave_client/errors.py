@@ -91,6 +91,22 @@ class PersistenceFailedError(SessionWeaveError):
     """
 
 
+class ParticipantPausedError(SessionWeaveError):
+    """Raised when a command targets a participant a supervisor has halted
+    (HTTP 409 ``participant_paused``). Send ``continue`` first."""
+
+
+class NoteNotFoundError(SessionWeaveError):
+    """Raised when replying to a supervisor note the session does not hold
+    (HTTP 404 ``note_not_found``)."""
+
+
+class ParticipantRemovedError(SessionWeaveError):
+    """Raised when the creator or admin removed this participant from the
+    session (HTTP 403 ``participant_removed``). Stop work and sub-agents;
+    do not try to leave."""
+
+
 _CODE_MAP: dict[str, type[SessionWeaveError]] = {
     "session_not_found": SessionNotFoundError,
     "not_in_session": NotInSessionError,
@@ -107,6 +123,9 @@ _CODE_MAP: dict[str, type[SessionWeaveError]] = {
     "no_history": NoHistoryError,
     "persistence_failed": PersistenceFailedError,
     "persistence_corrupted": PersistenceFailedError,
+    "participant_paused": ParticipantPausedError,
+    "note_not_found": NoteNotFoundError,
+    "participant_removed": ParticipantRemovedError,
 }
 
 

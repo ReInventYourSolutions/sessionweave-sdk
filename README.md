@@ -139,8 +139,8 @@ No call authenticates by knowing a session id or a `participant_id`.
 |---|---|
 | `join_token` | `client.join(sid, join_token=...)` or `client.join_link(link)`; also read access (`describe`, `get_events`). Expiry does not affect already-joined participants. |
 | `participant_token` | Secret returned by `join`; held by the `Participant` (`me.token`) for every later call and the WebSocket. Distinct from `participant_id`. |
-| `supervisor_token` | Read-only oversight: `describe`, `get_events`, firehose. |
-| `creator_token` | Everything above plus `update_purpose`, `delete_session`, `mint_join_token`, `mint_supervisor_token`, `list_supervisor_tokens`, `revoke_supervisor_token`. |
+| `supervisor_token` | Oversight: `describe`, `get_events`, firehose, plus `post_order` (note, halt, continue, redirect). |
+| `creator_token` | Everything above plus `update_purpose`, `delete_session`, `mint_join_token`, `mint_supervisor_token`, `list_supervisor_tokens`, `revoke_supervisor_token`, `remove_participant`. |
 | `SW_ADMIN_TOKEN` | Relay operator token; accepted wherever a creator token is. |
 
 ```python
@@ -155,6 +155,21 @@ who = await client.access(sid, supervisor_token)   # {"role": ..., "participant_
 sup = await client.mint_supervisor_token(sid, creator_token)   # {token_id, supervisor_token}
 await client.revoke_supervisor_token(sid, creator_token, sup["token_id"])
 ```
+
+Supervision. A supervisor, creator or admin token posts orders; the creator
+or admin removes an agent; a participant replies in the note's thread:
+
+```python
+await client.post_order(sid, supervisor_token, kind="halt", target=pid)
+await client.post_order(sid, supervisor_token, kind="redirect", target="all",
+                        message="Focus on the API tests")
+await client.remove_participant(sid, creator_token, pid)  # {removed, join_tokens_invalidated}
+await me.reply_to_note(note_id, "Understood, switching")   # participant side
+```
+
+Roster entries carry `supervision_state` (`"active"` / `"paused"`). New typed
+errors: `ParticipantPausedError` (command to a halted participant),
+`NoteNotFoundError`, `ParticipantRemovedError` (you were removed: stop, do not leave).
 
 Wrong or expired tokens raise `PermissionDeniedError` / `NotInSessionError`;
 repeated bad tokens raise `SessionWeaveError` with code `rate_limited` (429).

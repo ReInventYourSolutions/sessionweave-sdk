@@ -12,8 +12,11 @@ import httpx
 import pytest
 
 from sessionweave_client import (
+    NoteNotFoundError,
     NotInSessionError,
     Participant,
+    ParticipantPausedError,
+    ParticipantRemovedError,
     SessionNotFoundError,
     SessionWeaveClient,
     SessionWeaveError,
@@ -386,3 +389,73 @@ async def test_join_link_rejects_other_relay(link: str) -> None:
         with pytest.raises(ValueError):
             await client.join_link(link)
     assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_post_order_posts_kind_target_message() -> None:
+    note = {"note_id": "n1", "kind": "halt", "target": "all", "message": None,
+            "ts_ms": 1, "affected": ["p1"]}
+    client, seen = _recording_client({
+        ("POST", "/v1/sessions/s1/supervisor/notes"): httpx.Response(200, json=note),
+    })
+    async with client:
+        out = await client.post_order("s1", "sup-tok", kind="halt")
+        await client.post_order(
+            "s1", "sup-tok", kind="redirect", target="p1", message="go left"
+        )
+    assert out == note
+    assert seen[0].headers["authorization"] == "Bearer sup-tok"
+    assert json.loads(seen[0].content) == {"kind": "halt", "target": "all"}
+    assert json.loads(seen[1].content) == {
+        "kind": "redirect", "target": "p1", "message": "go left"}
+
+
+@pytest.mark.asyncio
+async def test_remove_participant_deletes_with_bearer() -> None:
+    body = {"removed": [{"participant_id": "p1"}], "join_tokens_invalidated": 2}
+    client, seen = _recording_client({
+        ("DELETE", "/v1/sessions/s1/participants/p1"): httpx.Response(200, json=body),
+    })
+    async with client:
+        out = await client.remove_participant("s1", "creator-tok", "p1")
+    assert out == body
+    assert seen[0].headers["authorization"] == "Bearer creator-tok"
+
+
+@pytest.mark.asyncio
+async def test_reply_to_note_posts_message_with_participant_token() -> None:
+    reply = {"note_id": "n1", "message": "done"}
+    client, seen = _recording_client({
+        ("POST", "/v1/sessions/s1/supervisor/notes/n1/replies"):
+            httpx.Response(201, json=reply),
+    })
+    async with client:
+        me = Participant(client, session_id="s1", participant_id="p1", token="ptok", role=None)
+        out = await me.reply_to_note("n1", "done")
+    assert out == reply
+    assert seen[0].headers["authorization"] == "Bearer ptok"
+    assert json.loads(seen[0].content) == {"message": "done"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "code", "cls"),
+    [
+        (409, "participant_paused", ParticipantPausedError),
+        (404, "note_not_found", NoteNotFoundError),
+        (403, "participant_removed", ParticipantRemovedError),
+    ],
+)
+async def test_supervision_error_codes_map_to_typed_errors(
+    status: int, code: str, cls: type[SessionWeaveError]
+) -> None:
+    client, _ = _recording_client({
+        ("GET", "/v1/sessions/s1/access"): httpx.Response(
+            status, json={"error": {"code": code, "message": "m"}}),
+    })
+    async with client:
+        with pytest.raises(cls) as ei:
+            await client.access("s1", "t")
+    assert isinstance(ei.value, SessionWeaveError)
+    assert ei.value.code == code
+    assert ei.value.status == status
