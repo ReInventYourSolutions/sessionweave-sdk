@@ -35,13 +35,16 @@ async def main() -> None:
         sess = await client.create_session(
             purpose={"kind": "smoke", "instructions": "echo what you receive"}
         )
+        # create_session returns one-time credentials, incl. a join token.
+        jt = sess["join_token"]
         host = await client.join(
-            sess["session_id"], role="host", capabilities=["broadcast"]
+            sess["session_id"], join_token=jt, role="host", capabilities=["broadcast"]
         )
 
         # In a real app a worker would join from another process.
+        # (Or: ``await client.join_link(sess["invite_link"], role="worker")``.)
         worker = await client.join(
-            sess["session_id"], role="worker", capabilities=["respond"]
+            sess["session_id"], join_token=jt, role="worker", capabilities=["respond"]
         )
 
         # Host dispatches a command.
@@ -95,12 +98,9 @@ state         = r["persistence"]     # {"mode":"ttl","expires_at":"…"}
 ```
 
 `creator_token` is the proof of ownership: you need it to terminate
-the session, AND (relay 0.17.0+) it's the bearer for the per-session
-firehose at
-`GET /v1/sessions/{sid}/firehose?token=<creator_token>` — the
-supervisor stream that delivers every event in the session, including
-chat between other participants. Store it in process memory / vault;
-the relay never returns it again.
+the session, update its purpose and mint further credentials. Store it
+in process memory / vault; the relay never returns it again. See
+"Credentials" below for the full model.
 
 `creator_id` is an opaque display handle the relay echoes back. Pass
 your own (a user id, an agent label) and you'll get it back verbatim;
@@ -113,7 +113,7 @@ v0.17.0 — it's a client-side display aid for "created by X" surfaces.
 # NoHistoryError.
 from sessionweave_client import NoHistoryError
 try:
-    page = await client.get_events(sid, limit=200)
+    page = await client.get_events(sid, token=creator_token, limit=200)
     print(page["session_state"])   # "hot" | "cold" | "ended"
     for e in page["events"]:
         ...
@@ -121,12 +121,43 @@ except NoHistoryError:
     print("session is ephemeral — no events stored")
 
 # Terminate when done
-await client.delete_session(sid, creator_token=creator_token)
+await client.delete_session(sid, creator_token)
 ```
 
 When you don't pass `persistence`, the session is gone the moment idle
 TTL fires — nothing reaches storage. Persistence is **the user's
 decision**, declared per session.
+
+## Credentials
+
+No call authenticates by knowing a session id or a `participant_id`.
+`create_session` returns (once each) a `creator_token`, a first
+`supervisor_token` (+ `supervisor_token_id`), a `join_token` valid for
+15 minutes (multi-use), and an `invite_url` / `invite_link` embedding it.
+
+| Credential | Use |
+|---|---|
+| `join_token` | `client.join(sid, join_token=...)` or `client.join_link(link)`; also read access (`describe`, `get_events`). Expiry does not affect already-joined participants. |
+| `participant_token` | Secret returned by `join`; held by the `Participant` (`me.token`) for every later call and the WebSocket. Distinct from `participant_id`. |
+| `supervisor_token` | Read-only oversight: `describe`, `get_events`, firehose. |
+| `creator_token` | Everything above plus `update_purpose`, `delete_session`, `mint_join_token`, `mint_supervisor_token`, `list_supervisor_tokens`, `revoke_supervisor_token`. |
+| `SW_ADMIN_TOKEN` | Relay operator token; accepted wherever a creator token is. |
+
+```python
+jt = (await client.mint_join_token(sid, creator_token))["join_token"]
+me = await client.join(sid, join_token=jt, role="worker")
+# or from a link: me = await client.join_link("swvs://host/<sid>?jt=<jt>")
+
+info = await client.describe(sid, token=supervisor_token)
+await client.update_purpose(sid, creator_token, {"project": "Q4"})
+who = await client.access(sid, supervisor_token)   # {"role": ..., "participant_id": ...}
+
+sup = await client.mint_supervisor_token(sid, creator_token)   # {token_id, supervisor_token}
+await client.revoke_supervisor_token(sid, creator_token, sup["token_id"])
+```
+
+Wrong or expired tokens raise `PermissionDeniedError` / `NotInSessionError`;
+repeated bad tokens raise `SessionWeaveError` with code `rate_limited` (429).
 
 ### Idempotent retries via `command_id`
 
@@ -259,10 +290,10 @@ See [`examples/`](./examples/) for runnable demos including:
 
 ## Versioning
 
-SemVer. `0.x` while the relay is still in sub-project #1 (anonymous,
-transient sessions, bearer-as-participant_id auth). When sub-project
-#3 (accounts + JWT) lands, the auth shape changes — the SDK will
-absorb that with a minor bump and keep the public surface stable.
+SemVer. `0.x` while the relay is still pre-accounts. Authentication is
+token-based: join tokens, secret participant tokens, supervisor and
+creator tokens (see "Credentials"); a future accounts/JWT layer will be
+absorbed with a minor bump.
 
 | SDK | Relay | What's in it |
 |-----|-------|--------------|
@@ -273,3 +304,4 @@ absorb that with a minor bump and keep the public surface stable.
 | 0.5.0 | 0.16.0+        | Persistence (`ttl` / `until_deleted`), `creator_token` flow, `get_events`, `session_delete`, `command_id` idempotency |
 | 0.6.0 | 0.17.0+        | `create_session(creator_id=…)` echo + firehose creator-token auth |
 | 0.7.0 | 0.17.3+        | `Participant.wait_for_event()` now extends the per-call httpx read timeout to `timeout_seconds + 10` so the connection survives the server-side budget — eliminates the spurious `httpx.ReadTimeout` per turn that you'd otherwise paper over with a relay-side cancellation (relay 0.17.3 also added that safety net via HTTP `499 client_disconnect`, so the cleanup is correct either way). |
+| 0.8.0 | 0.28.0+        | Join tokens, secret participant tokens, credential minting (`creator_token`, supervisor tokens), token-authenticated reads; `join_link` refuses a mismatched relay host. BREAKING: no session-id or participant_id authentication |

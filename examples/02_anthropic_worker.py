@@ -10,6 +10,7 @@ Run:
     pip install anthropic sessionweave-client
     export ANTHROPIC_API_KEY=...
     export SW_SESSION_ID=<sid>             # the session you want to join
+    export SW_JOIN_TOKEN=<jt>              # join token from the invite link (?jt=)
     export SW_BASE=https://relay.sessionweave.com  # optional override
     python 02_anthropic_worker.py
 
@@ -42,6 +43,7 @@ async def main() -> None:
     async with SessionWeaveClient(base_url=base) as client:
         me = await client.join(
             sid,
+            join_token=os.environ["SW_JOIN_TOKEN"],
             role="anthropic-worker",
             objective=f"answer prompts using {model}",
             capabilities=["respond", "llm:anthropic"],

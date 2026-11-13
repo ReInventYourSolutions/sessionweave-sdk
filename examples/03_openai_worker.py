@@ -10,6 +10,7 @@ Run:
     pip install openai sessionweave-client
     export OPENAI_API_KEY=...
     export SW_SESSION_ID=<sid>
+    export SW_JOIN_TOKEN=<jt>              # join token from the invite link (?jt=)
     export SW_BASE=https://relay.sessionweave.com  # optional override
     python 03_openai_worker.py
 """
@@ -36,6 +37,7 @@ async def main() -> None:
     async with SessionWeaveClient(base_url=base) as client:
         me = await client.join(
             sid,
+            join_token=os.environ["SW_JOIN_TOKEN"],
             role="openai-worker",
             objective=f"answer prompts using {model}",
             capabilities=["respond", "llm:openai"],
