@@ -22,8 +22,11 @@ from sessionweave_client.errors import (
     AlreadyRespondedError,
     InvalidDeliveryModeError,
     NoHistoryError,
+    NoteNotFoundError,
     NotInSessionError,
     ParticipantEvictedError,
+    ParticipantPausedError,
+    ParticipantRemovedError,
     PermissionDeniedError,
     PersistenceFailedError,
     SessionNotFoundError,
@@ -34,6 +37,7 @@ from sessionweave_client.errors import (
 )
 from sessionweave_client.types import (
     Event,
+    OrderKind,
     SessionInfo,
     WaitForEventResult,
 )
@@ -46,8 +50,12 @@ __all__ = [
     "InvalidDeliveryModeError",
     "NoHistoryError",
     "NotInSessionError",
+    "NoteNotFoundError",
+    "OrderKind",
     "Participant",
     "ParticipantEvictedError",
+    "ParticipantPausedError",
+    "ParticipantRemovedError",
     "PermissionDeniedError",
     "PersistenceFailedError",
     "SessionInfo",

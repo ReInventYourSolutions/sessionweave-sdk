@@ -20,6 +20,8 @@ class SessionInfo:
     config: dict[str, int]
     purpose: dict[str, Any] | None
     roster: list[dict[str, Any]]
+    """Entries carry ``supervision_state`` (``"active"`` or ``"paused"``) —
+    what a supervisor last ordered, not proof the agent complied."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,3 +53,5 @@ class WaitForEventResult:
 DispatchMode = Literal["specific", "all", "any"]
 ResponseStatus = Literal["ok", "error"]
 DeliveryMode = Literal["push", "pull"]
+# Supervision order kinds a supervisor / creator / admin may post.
+OrderKind = Literal["note", "halt", "continue", "redirect"]

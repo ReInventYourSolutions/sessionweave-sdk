@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlparse, urlunparse
 
 import httpx
 import websockets
@@ -15,6 +15,7 @@ from sessionweave_client.types import (
     DeliveryMode,
     DispatchMode,
     Event,
+    OrderKind,
     ResponseStatus,
     SessionInfo,
     WaitForEventResult,
@@ -206,6 +207,21 @@ class Participant:
             json={"status": status, "payload": payload},
         )
         _raise_for_status(r)
+
+    async def reply_to_note(self, note_id: str, message: str) -> dict[str, Any]:
+        """Reply in a supervisor note's thread (participant token).
+
+        Raises ``NoteNotFoundError`` for an unknown ``note_id`` and
+        ``PermissionDeniedError`` if the note was addressed to someone else.
+        """
+        note = quote(note_id, safe="")
+        r = await self._owner._http.post(
+            f"/v1/sessions/{self.session_id}/supervisor/notes/{note}/replies",
+            headers=self._auth,
+            json={"message": message},
+        )
+        _raise_for_status(r)
+        return dict(r.json())
 
     async def drain_inbox(self) -> list[Event]:
         """Pop and return any buffered events for this participant.
@@ -509,6 +525,46 @@ class SessionWeaveClient:
             headers=_bearer(creator_token),
         )
         _raise_for_status(r)
+
+    async def post_order(
+        self,
+        session_id: str,
+        token: str,
+        *,
+        kind: OrderKind,
+        target: str = "all",
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        """Post a supervision order (supervisor, creator or admin token).
+
+        ``kind`` is ``note``, ``halt``, ``continue`` or ``redirect``; ``note``
+        and ``redirect`` need a ``message``. ``target`` is ``"all"`` or a
+        participant_id. Returns ``{note_id, kind, target, message, ts_ms,
+        affected}``.
+        """
+        body: dict[str, Any] = {"kind": kind, "target": target}
+        if message is not None:
+            body["message"] = message
+        r = await self._http.post(
+            f"/v1/sessions/{session_id}/supervisor/notes",
+            headers=_bearer(token),
+            json=body,
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def remove_participant(
+        self, session_id: str, token: str, participant_id: str
+    ) -> dict[str, Any]:
+        """Remove a participant (creator or admin token). Returns
+        ``{removed: [...], join_tokens_invalidated: n}``."""
+        pid = quote(participant_id, safe="")
+        r = await self._http.delete(
+            f"/v1/sessions/{session_id}/participants/{pid}",
+            headers=_bearer(token),
+        )
+        _raise_for_status(r)
+        return dict(r.json())
 
     async def access(self, session_id: str, token: str) -> dict[str, Any]:
         """Introspect any valid token: returns ``{role, participant_id}``."""

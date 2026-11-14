@@ -139,8 +139,8 @@ No call authenticates by knowing a session id or a `participant_id`.
 |---|---|
 | `join_token` | `client.join(sid, join_token=...)` or `client.join_link(link)`; also read access (`describe`, `get_events`). Expiry does not affect already-joined participants. |
 | `participant_token` | Secret returned by `join`; held by the `Participant` (`me.token`) for every later call and the WebSocket. Distinct from `participant_id`. |
-| `supervisor_token` | Read-only oversight: `describe`, `get_events`, firehose. |
-| `creator_token` | Everything above plus `update_purpose`, `delete_session`, `mint_join_token`, `mint_supervisor_token`, `list_supervisor_tokens`, `revoke_supervisor_token`. |
+| `supervisor_token` | Oversight: `describe`, `get_events`, firehose, plus `post_order` (note, halt, continue, redirect). |
+| `creator_token` | Everything above plus `update_purpose`, `delete_session`, `mint_join_token`, `mint_supervisor_token`, `list_supervisor_tokens`, `revoke_supervisor_token`, `remove_participant`. |
 | `SW_ADMIN_TOKEN` | Relay operator token; accepted wherever a creator token is. |
 
 ```python
@@ -155,6 +155,21 @@ who = await client.access(sid, supervisor_token)   # {"role": ..., "participant_
 sup = await client.mint_supervisor_token(sid, creator_token)   # {token_id, supervisor_token}
 await client.revoke_supervisor_token(sid, creator_token, sup["token_id"])
 ```
+
+Supervision. A supervisor, creator or admin token posts orders; the creator
+or admin removes an agent; a participant replies in the note's thread:
+
+```python
+await client.post_order(sid, supervisor_token, kind="halt", target=pid)
+await client.post_order(sid, supervisor_token, kind="redirect", target="all",
+                        message="Focus on the API tests")
+await client.remove_participant(sid, creator_token, pid)  # {removed, join_tokens_invalidated}
+await me.reply_to_note(note_id, "Understood, switching")   # participant side
+```
+
+Roster entries carry `supervision_state` (`"active"` / `"paused"`). New typed
+errors: `ParticipantPausedError` (command to a halted participant),
+`NoteNotFoundError`, `ParticipantRemovedError` (you were removed: stop, do not leave).
 
 Wrong or expired tokens raise `PermissionDeniedError` / `NotInSessionError`;
 repeated bad tokens raise `SessionWeaveError` with code `rate_limited` (429).
@@ -305,3 +320,4 @@ absorbed with a minor bump.
 | 0.6.0 | 0.17.0+        | `create_session(creator_id=…)` echo + firehose creator-token auth |
 | 0.7.0 | 0.17.3+        | `Participant.wait_for_event()` now extends the per-call httpx read timeout to `timeout_seconds + 10` so the connection survives the server-side budget — eliminates the spurious `httpx.ReadTimeout` per turn that you'd otherwise paper over with a relay-side cancellation (relay 0.17.3 also added that safety net via HTTP `499 client_disconnect`, so the cleanup is correct either way). |
 | 0.8.0 | 0.28.0+        | Join tokens, secret participant tokens, credential minting (`creator_token`, supervisor tokens), token-authenticated reads; `join_link` refuses a mismatched relay host. BREAKING: no session-id or participant_id authentication |
+| 0.9.0 | 0.29.0+        | `post_order` (note/halt/continue/redirect) and `remove_participant`; `Participant.reply_to_note`; typed errors for paused and removed participants (`participant_paused`, `participant_removed`) |
