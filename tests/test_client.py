@@ -459,3 +459,32 @@ async def test_supervision_error_codes_map_to_typed_errors(
     assert isinstance(ei.value, SessionWeaveError)
     assert ei.value.code == code
     assert ei.value.status == status
+
+
+@pytest.mark.asyncio
+async def test_flat_error_with_detail_carries_the_reason() -> None:
+    """The supervisor notes route answers ``{"error": code, "detail": why}``."""
+    client, _ = _recording_client({
+        ("POST", "/v1/sessions/s1/supervisor/notes"): httpx.Response(
+            400, json={"error": "invalid_request", "detail": "message is required"}),
+    })
+    async with client:
+        with pytest.raises(SessionWeaveError) as ei:
+            await client.post_order("s1", "sup", kind="note")
+    assert ei.value.code == "invalid_request"
+    assert "message is required" in str(ei.value)
+
+
+@pytest.mark.asyncio
+async def test_path_segments_are_url_quoted() -> None:
+    client, seen = _recording_client({
+        ("DELETE", "/v1/sessions/s1/participants/a/b"): httpx.Response(200, json={}),
+        ("POST", "/v1/sessions/s1/supervisor/notes/n?1/replies"):
+            httpx.Response(201, json={}),
+    })
+    async with client:
+        await client.remove_participant("s1", "ct", "a/b")
+        me = Participant(client, session_id="s1", participant_id="p1", token="t", role=None)
+        await me.reply_to_note("n?1", "hi")
+    assert seen[0].url.raw_path == b"/v1/sessions/s1/participants/a%2Fb"
+    assert seen[1].url.raw_path == b"/v1/sessions/s1/supervisor/notes/n%3F1/replies"

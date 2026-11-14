@@ -5,7 +5,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlparse, urlunparse
 
 import httpx
 import websockets
@@ -214,8 +214,9 @@ class Participant:
         Raises ``NoteNotFoundError`` for an unknown ``note_id`` and
         ``PermissionDeniedError`` if the note was addressed to someone else.
         """
+        note = quote(note_id, safe="")
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/supervisor/notes/{note_id}/replies",
+            f"/v1/sessions/{self.session_id}/supervisor/notes/{note}/replies",
             headers=self._auth,
             json={"message": message},
         )
@@ -557,8 +558,9 @@ class SessionWeaveClient:
     ) -> dict[str, Any]:
         """Remove a participant (creator or admin token). Returns
         ``{removed: [...], join_tokens_invalidated: n}``."""
+        pid = quote(participant_id, safe="")
         r = await self._http.delete(
-            f"/v1/sessions/{session_id}/participants/{participant_id}",
+            f"/v1/sessions/{session_id}/participants/{pid}",
             headers=_bearer(token),
         )
         _raise_for_status(r)

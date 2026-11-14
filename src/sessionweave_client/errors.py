@@ -135,7 +135,8 @@ def from_response(status: int, body: dict[str, object] | None) -> SessionWeaveEr
     The relay returns one of two shapes (history reasons):
 
       * nested:  ``{"error": {"code": "<code>", "message": "<msg>"}}``
-      * flat:    ``{"error": "<code>", "message": "<msg>"}``
+      * flat:    ``{"error": "<code>", "message": "<msg>"}`` (or ``"detail"``
+        instead of ``"message"``, as the supervisor notes route answers)
 
     Both are recognised — codes map through ``_CODE_MAP`` and unknown
     codes fall back to the base ``SessionWeaveError``.
@@ -150,7 +151,7 @@ def from_response(status: int, body: dict[str, object] | None) -> SessionWeaveEr
         message = str(err.get("message") or "")
     elif isinstance(err, str):
         code = err
-        message = str(body.get("message") or err)
+        message = str(body.get("message") or body.get("detail") or err)
     else:
         code = "http_error"
         message = str(body)
