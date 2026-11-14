@@ -208,17 +208,30 @@ class Participant:
         )
         _raise_for_status(r)
 
-    async def reply_to_note(self, note_id: str, message: str) -> dict[str, Any]:
+    async def reply_to_note(
+        self,
+        note_id: str,
+        message: str,
+        *,
+        outcome: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Reply in a supervisor note's thread (participant token).
+
+        ``outcome`` is optional structured result, mainly for ``undo`` orders:
+        ``{"status": "done"|"partial"|"impossible", "undone": [str],
+        "not_reversible": [str]}``; ``message`` stays required.
 
         Raises ``NoteNotFoundError`` for an unknown ``note_id`` and
         ``PermissionDeniedError`` if the note was addressed to someone else.
         """
         note = quote(note_id, safe="")
+        body: dict[str, Any] = {"message": message}
+        if outcome is not None:
+            body["outcome"] = outcome
         r = await self._owner._http.post(
             f"/v1/sessions/{self.session_id}/supervisor/notes/{note}/replies",
             headers=self._auth,
-            json={"message": message},
+            json=body,
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -537,8 +550,8 @@ class SessionWeaveClient:
     ) -> dict[str, Any]:
         """Post a supervision order (supervisor, creator or admin token).
 
-        ``kind`` is ``note``, ``halt``, ``continue`` or ``redirect``; ``note``
-        and ``redirect`` need a ``message``. ``target`` is ``"all"`` or a
+        ``kind`` is ``note``, ``halt``, ``continue``, ``redirect`` or ``undo``;
+        ``note``, ``redirect`` and ``undo`` need a ``message``. ``target`` is ``"all"`` or a
         participant_id. Returns ``{note_id, kind, target, message, ts_ms,
         affected}``.
         """

@@ -411,6 +411,36 @@ async def test_post_order_posts_kind_target_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_order_undo_posts_kind_and_message() -> None:
+    note = {"note_id": "n2", "kind": "undo", "target": "p1", "message": "revert",
+            "ts_ms": 1, "affected": ["p1"]}
+    client, seen = _recording_client({
+        ("POST", "/v1/sessions/s1/supervisor/notes"): httpx.Response(200, json=note),
+    })
+    async with client:
+        out = await client.post_order(
+            "s1", "sup-tok", kind="undo", target="p1", message="revert")
+    assert out == note
+    assert json.loads(seen[0].content) == {
+        "kind": "undo", "target": "p1", "message": "revert"}
+
+
+@pytest.mark.asyncio
+async def test_reply_to_note_includes_outcome_only_when_given() -> None:
+    client, seen = _recording_client({
+        ("POST", "/v1/sessions/s1/supervisor/notes/n1/replies"):
+            httpx.Response(201, json={"note_id": "n1"}),
+    })
+    outcome = {"status": "partial", "undone": ["a.txt"], "not_reversible": ["push"]}
+    async with client:
+        me = Participant(client, session_id="s1", participant_id="p1", token="ptok", role=None)
+        await me.reply_to_note("n1", "done")
+        await me.reply_to_note("n1", "partly", outcome=outcome)
+    assert json.loads(seen[0].content) == {"message": "done"}
+    assert json.loads(seen[1].content) == {"message": "partly", "outcome": outcome}
+
+
+@pytest.mark.asyncio
 async def test_remove_participant_deletes_with_bearer() -> None:
     body = {"removed": [{"participant_id": "p1"}], "join_tokens_invalidated": 2}
     client, seen = _recording_client({
