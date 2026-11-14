@@ -54,4 +54,4 @@ DispatchMode = Literal["specific", "all", "any"]
 ResponseStatus = Literal["ok", "error"]
 DeliveryMode = Literal["push", "pull"]
 # Supervision order kinds a supervisor / creator / admin may post.
-OrderKind = Literal["note", "halt", "continue", "redirect"]
+OrderKind = Literal["note", "halt", "continue", "redirect", "undo"]

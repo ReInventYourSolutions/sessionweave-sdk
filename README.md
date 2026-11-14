@@ -164,7 +164,11 @@ await client.post_order(sid, supervisor_token, kind="halt", target=pid)
 await client.post_order(sid, supervisor_token, kind="redirect", target="all",
                         message="Focus on the API tests")
 await client.remove_participant(sid, creator_token, pid)  # {removed, join_tokens_invalidated}
+await client.post_order(sid, supervisor_token, kind="undo", target=pid,
+                        message="Revert the last change")   # pauses like halt
 await me.reply_to_note(note_id, "Understood, switching")   # participant side
+await me.reply_to_note(note_id, "Reverted a.txt", outcome={
+    "status": "partial", "undone": ["a.txt"], "not_reversible": ["git push"]})
 ```
 
 Roster entries carry `supervision_state` (`"active"` / `"paused"`). New typed
@@ -321,3 +325,4 @@ absorbed with a minor bump.
 | 0.7.0 | 0.17.3+        | `Participant.wait_for_event()` now extends the per-call httpx read timeout to `timeout_seconds + 10` so the connection survives the server-side budget — eliminates the spurious `httpx.ReadTimeout` per turn that you'd otherwise paper over with a relay-side cancellation (relay 0.17.3 also added that safety net via HTTP `499 client_disconnect`, so the cleanup is correct either way). |
 | 0.8.0 | 0.28.0+        | Join tokens, secret participant tokens, credential minting (`creator_token`, supervisor tokens), token-authenticated reads; `join_link` refuses a mismatched relay host. BREAKING: no session-id or participant_id authentication |
 | 0.9.0 | 0.29.0+        | `post_order` (note/halt/continue/redirect) and `remove_participant`; `Participant.reply_to_note`; typed errors for paused and removed participants (`participant_paused`, `participant_removed`) |
+| 0.10.0 | 0.30.0+       | `post_order` accepts `undo`; `Participant.reply_to_note(..., outcome=…)` (status done/partial/impossible, undone, not_reversible) |
