@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any
@@ -43,6 +44,11 @@ def _raise_for_status(r: httpx.Response) -> None:
 
 def _bearer(token: str) -> dict[str, str]:
     return {"authorization": f"Bearer {token}"}
+
+
+def _json_or_none(r: httpx.Response) -> Any:
+    """Parsed JSON body, or ``None`` for an empty (204) response."""
+    return None if r.status_code == 204 or not r.content else r.json()
 
 
 def _parse_invite(link: str) -> tuple[str, str, str, str]:
@@ -392,15 +398,24 @@ class SessionWeaveClient:
     ``await client.aclose()`` is equivalent.
     """
 
-    __slots__ = ("_http", "base_url")
+    __slots__ = ("_account_token", "_http", "base_url")
 
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
         *,
         timeout: float | httpx.Timeout = 30.0,
+        account_token: str | None = None,
     ) -> None:
+        """``account_token`` (default: ``SW_ACCOUNT_TOKEN``) identifies the
+        owning account. It is sent only by ``create_session`` and the
+        ``me*`` methods - never on join, participant or management calls."""
         self.base_url = base_url.rstrip("/")
+        self._account_token = (
+            account_token
+            if account_token is not None
+            else (os.environ.get("SW_ACCOUNT_TOKEN") or None)
+        )
         self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 
     async def __aenter__(self) -> SessionWeaveClient:
@@ -424,8 +439,13 @@ class SessionWeaveClient:
         config: dict[str, int] | None = None,
         persistence: dict[str, Any] | None = None,
         creator_id: str | None = None,
+        owner_account_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a new session.
+
+        With an ``account_token`` configured it is sent as the Bearer and the
+        session is owned by that account. ``owner_account_id`` (relay admin
+        token only) creates the session on behalf of an account.
 
         ``persistence`` (relay 0.16.0+, opt-in) is a dict ``{mode, ttl_seconds?}``:
 
@@ -468,9 +488,153 @@ class SessionWeaveClient:
             body["persistence"] = persistence
         if creator_id is not None:
             body["creator_id"] = creator_id
-        r = await self._http.post("/v1/sessions", json=body)
+        if owner_account_id is not None:
+            body["owner_account_id"] = owner_account_id
+        headers = _bearer(self._account_token) if self._account_token else None
+        r = await self._http.post("/v1/sessions", json=body, headers=headers)
         _raise_for_status(r)
         return dict(r.json())
+
+    def _account_auth(self) -> dict[str, str]:
+        if not self._account_token:
+            raise ValueError(
+                "account_token is not set (pass account_token= or set SW_ACCOUNT_TOKEN)"
+            )
+        return _bearer(self._account_token)
+
+    async def me(self) -> dict[str, Any]:
+        """The account the configured account token belongs to."""
+        r = await self._http.get("/v1/me", headers=self._account_auth())
+        _raise_for_status(r)
+        return _json_or_none(r)  # type: ignore[no-any-return]
+
+    async def my_tokens(self) -> dict[str, Any]:
+        """List the account's tokens: ``{"tokens": [...]}``."""
+        r = await self._http.get("/v1/me/tokens", headers=self._account_auth())
+        _raise_for_status(r)
+        return _json_or_none(r)  # type: ignore[no-any-return]
+
+    async def create_my_token(
+        self, label: str, *, expires_at: str | None = None
+    ) -> dict[str, Any]:
+        """Mint another account token (``expires_at``: ISO 8601). The secret
+        ``token`` in the response is shown once."""
+        body: dict[str, Any] = {"label": label}
+        if expires_at is not None:
+            body["expires_at"] = expires_at
+        r = await self._http.post(
+            "/v1/me/tokens", headers=self._account_auth(), json=body
+        )
+        _raise_for_status(r)
+        return _json_or_none(r)  # type: ignore[no-any-return]
+
+    async def revoke_my_token(self, token_id: str) -> None:
+        """Revoke one of the account's tokens by ``token_id``."""
+        r = await self._http.delete(
+            f"/v1/me/tokens/{quote(token_id, safe='')}", headers=self._account_auth()
+        )
+        _raise_for_status(r)
+
+    async def my_sessions(self) -> dict[str, Any]:
+        """The account's sessions: ``{"sessions": [{session_id, suspended,
+        persisted, purpose}]}``."""
+        r = await self._http.get("/v1/me/sessions", headers=self._account_auth())
+        _raise_for_status(r)
+        return _json_or_none(r)  # type: ignore[no-any-return]
+
+    async def _admin(
+        self,
+        method: str,
+        admin_token: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+    ) -> Any:
+        r = await self._http.request(
+            method, path, headers=_bearer(admin_token), json=body
+        )
+        _raise_for_status(r)
+        return _json_or_none(r)
+
+    async def admin_create_account(
+        self,
+        admin_token: str,
+        name: str,
+        *,
+        contact: str | None = None,
+        status: str = "active",
+        created_by: str = "admin",
+    ) -> dict[str, Any]:
+        """Create an account (relay admin token)."""
+        body: dict[str, Any] = {"name": name, "status": status, "created_by": created_by}
+        if contact is not None:
+            body["contact"] = contact
+        return await self._admin("POST", admin_token, "/v1/accounts", body)  # type: ignore[no-any-return]
+
+    async def admin_list_accounts(self, admin_token: str) -> dict[str, Any]:
+        """List accounts: ``{"accounts": [...]}``."""
+        return await self._admin("GET", admin_token, "/v1/accounts")  # type: ignore[no-any-return]
+
+    async def admin_get_account(self, admin_token: str, account_id: str) -> dict[str, Any]:
+        """One account with its tokens."""
+        return await self._admin(  # type: ignore[no-any-return]
+            "GET", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+        )
+
+    async def admin_update_account(
+        self,
+        admin_token: str,
+        account_id: str,
+        *,
+        status: str | None = None,
+        name: str | None = None,
+        contact: str | None = None,
+    ) -> dict[str, Any]:
+        """Change status / name / contact. Returns the account plus
+        ``sessions_affected``."""
+        body: dict[str, Any] = {}
+        if status is not None:
+            body["status"] = status
+        if name is not None:
+            body["name"] = name
+        if contact is not None:
+            body["contact"] = contact
+        return await self._admin(  # type: ignore[no-any-return]
+            "PATCH", admin_token, f"/v1/accounts/{quote(account_id, safe='')}", body
+        )
+
+    async def admin_delete_account(
+        self, admin_token: str, account_id: str
+    ) -> dict[str, Any]:
+        """Delete an account and its sessions: ``{"deleted_sessions": n}``."""
+        return await self._admin(  # type: ignore[no-any-return]
+            "DELETE", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+        )
+
+    async def admin_create_account_token(
+        self,
+        admin_token: str,
+        account_id: str,
+        label: str,
+        *,
+        expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Mint an account token (secret shown once)."""
+        body: dict[str, Any] = {"label": label}
+        if expires_at is not None:
+            body["expires_at"] = expires_at
+        return await self._admin(  # type: ignore[no-any-return]
+            "POST", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/tokens", body
+        )
+
+    async def admin_revoke_account_token(
+        self, admin_token: str, account_id: str, token_id: str
+    ) -> None:
+        """Revoke an account token."""
+        await self._admin(
+            "DELETE",
+            admin_token,
+            f"/v1/accounts/{quote(account_id, safe='')}/tokens/{quote(token_id, safe='')}",
+        )
 
     async def delete_session(self, session_id: str, token: str) -> dict[str, Any]:
         """Delete a session. ``token`` is the ``creator_token`` (or the

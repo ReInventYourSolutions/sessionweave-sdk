@@ -77,6 +77,33 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## Accounts
+
+An account owns sessions and holds account tokens. Pass one as
+`SessionWeaveClient(account_token=...)` or set `SW_ACCOUNT_TOKEN`; it is
+sent only by `create_session` (the session becomes the account's) and the
+`me*` methods. Joining never needs it, and it is never sent on join,
+participant or management calls.
+
+```python
+async with SessionWeaveClient(account_token="...") as client:
+    session = await client.create_session(purpose={"kind": "demo"})
+    await client.me()                       # the account
+    await client.my_tokens()                # {"tokens": [...]}
+    t = await client.create_my_token("ci", expires_at="2027-01-01T00:00:00Z")
+    await client.revoke_my_token(t["token_id"])
+    await client.my_sessions()              # {"sessions": [...]}
+```
+
+Without an account token the `me*` methods raise `ValueError` before any
+request. Relay operators administer accounts with the admin token passed
+explicitly: `admin_create_account`, `admin_list_accounts`,
+`admin_get_account`, `admin_update_account`, `admin_delete_account`,
+`admin_create_account_token`, `admin_revoke_account_token`; and
+`create_session(owner_account_id=...)` creates a session for an account.
+All return the parsed JSON (`None` for revocations) and raise the usual
+typed errors.
+
 ## Persistence — opt-in, default Zero Data Retention
 
 Sessions are **ephemeral by default**: the relay holds them only in RAM
@@ -326,3 +353,4 @@ absorbed with a minor bump.
 | 0.8.0 | 0.28.0+        | Join tokens, secret participant tokens, credential minting (`creator_token`, supervisor tokens), token-authenticated reads; `join_link` refuses a mismatched relay host. BREAKING: no session-id or participant_id authentication |
 | 0.9.0 | 0.29.0+        | `post_order` (note/halt/continue/redirect) and `remove_participant`; `Participant.reply_to_note`; typed errors for paused and removed participants (`participant_paused`, `participant_removed`) |
 | 0.10.0 | 0.30.0+       | `post_order` accepts `undo` (message required); `Participant.reply_to_note(..., outcome=…)` structured undo outcome (status done/partial/impossible, undone, not_reversible) |
+| 0.11.0 | 0.31.0+       | Accounts: `account_token` / `SW_ACCOUNT_TOKEN`, `create_session(owner_account_id=…)`, `me`, `my_tokens`, `create_my_token`, `revoke_my_token`, `my_sessions`, and `admin_*` account administration |
