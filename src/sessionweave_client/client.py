@@ -411,11 +411,8 @@ class SessionWeaveClient:
         owning account. It is sent only by ``create_session`` and the
         ``me*`` methods - never on join, participant or management calls."""
         self.base_url = base_url.rstrip("/")
-        self._account_token = (
-            account_token
-            if account_token is not None
-            else (os.environ.get("SW_ACCOUNT_TOKEN") or None)
-        )
+        raw = account_token if account_token is not None else os.environ.get("SW_ACCOUNT_TOKEN")
+        self._account_token = (raw or "").strip() or None
         self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 
     async def __aenter__(self) -> SessionWeaveClient:
@@ -440,12 +437,15 @@ class SessionWeaveClient:
         persistence: dict[str, Any] | None = None,
         creator_id: str | None = None,
         owner_account_id: str | None = None,
+        admin_token: str | None = None,
     ) -> dict[str, Any]:
         """Create a new session.
 
         With an ``account_token`` configured it is sent as the Bearer and the
-        session is owned by that account. ``owner_account_id`` (relay admin
-        token only) creates the session on behalf of an account.
+        session is owned by that account. ``owner_account_id`` creates the
+        session on behalf of an account and requires ``admin_token`` (the
+        relay operator token), which is then the Bearer instead of the
+        account token; without it ``ValueError`` is raised before any request.
 
         ``persistence`` (relay 0.16.0+, opt-in) is a dict ``{mode, ttl_seconds?}``:
 
@@ -479,6 +479,8 @@ class SessionWeaveClient:
         ``join_link()``. A relay operator's ``SW_ADMIN_TOKEN`` is
         accepted wherever a creator token is.
         """
+        if owner_account_id is not None and not admin_token:
+            raise ValueError("owner_account_id requires admin_token")
         body: dict[str, Any] = {}
         if purpose is not None:
             body["purpose"] = purpose
@@ -490,7 +492,8 @@ class SessionWeaveClient:
             body["creator_id"] = creator_id
         if owner_account_id is not None:
             body["owner_account_id"] = owner_account_id
-        headers = _bearer(self._account_token) if self._account_token else None
+        token = admin_token or self._account_token
+        headers = _bearer(token) if token else None
         r = await self._http.post("/v1/sessions", json=body, headers=headers)
         _raise_for_status(r)
         return dict(r.json())
@@ -506,13 +509,13 @@ class SessionWeaveClient:
         """The account the configured account token belongs to."""
         r = await self._http.get("/v1/me", headers=self._account_auth())
         _raise_for_status(r)
-        return _json_or_none(r)  # type: ignore[no-any-return]
+        return dict(r.json())
 
     async def my_tokens(self) -> dict[str, Any]:
         """List the account's tokens: ``{"tokens": [...]}``."""
         r = await self._http.get("/v1/me/tokens", headers=self._account_auth())
         _raise_for_status(r)
-        return _json_or_none(r)  # type: ignore[no-any-return]
+        return dict(r.json())
 
     async def create_my_token(
         self, label: str, *, expires_at: str | None = None
@@ -526,7 +529,7 @@ class SessionWeaveClient:
             "/v1/me/tokens", headers=self._account_auth(), json=body
         )
         _raise_for_status(r)
-        return _json_or_none(r)  # type: ignore[no-any-return]
+        return dict(r.json())
 
     async def revoke_my_token(self, token_id: str) -> None:
         """Revoke one of the account's tokens by ``token_id``."""
@@ -540,7 +543,7 @@ class SessionWeaveClient:
         persisted, purpose}]}``."""
         r = await self._http.get("/v1/me/sessions", headers=self._account_auth())
         _raise_for_status(r)
-        return _json_or_none(r)  # type: ignore[no-any-return]
+        return dict(r.json())
 
     async def _admin(
         self,
@@ -568,16 +571,18 @@ class SessionWeaveClient:
         body: dict[str, Any] = {"name": name, "status": status, "created_by": created_by}
         if contact is not None:
             body["contact"] = contact
-        return await self._admin("POST", admin_token, "/v1/accounts", body)  # type: ignore[no-any-return]
+        return dict(await self._admin("POST", admin_token, "/v1/accounts", body))
 
     async def admin_list_accounts(self, admin_token: str) -> dict[str, Any]:
         """List accounts: ``{"accounts": [...]}``."""
-        return await self._admin("GET", admin_token, "/v1/accounts")  # type: ignore[no-any-return]
+        return dict(await self._admin("GET", admin_token, "/v1/accounts"))
 
     async def admin_get_account(self, admin_token: str, account_id: str) -> dict[str, Any]:
         """One account with its tokens."""
-        return await self._admin(  # type: ignore[no-any-return]
-            "GET", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+        return dict(
+            await self._admin(
+                "GET", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+            )
         )
 
     async def admin_update_account(
@@ -598,16 +603,20 @@ class SessionWeaveClient:
             body["name"] = name
         if contact is not None:
             body["contact"] = contact
-        return await self._admin(  # type: ignore[no-any-return]
-            "PATCH", admin_token, f"/v1/accounts/{quote(account_id, safe='')}", body
+        return dict(
+            await self._admin(
+                "PATCH", admin_token, f"/v1/accounts/{quote(account_id, safe='')}", body
+            )
         )
 
     async def admin_delete_account(
         self, admin_token: str, account_id: str
     ) -> dict[str, Any]:
         """Delete an account and its sessions: ``{"deleted_sessions": n}``."""
-        return await self._admin(  # type: ignore[no-any-return]
-            "DELETE", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+        return dict(
+            await self._admin(
+                "DELETE", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+            )
         )
 
     async def admin_create_account_token(
@@ -622,19 +631,21 @@ class SessionWeaveClient:
         body: dict[str, Any] = {"label": label}
         if expires_at is not None:
             body["expires_at"] = expires_at
-        return await self._admin(  # type: ignore[no-any-return]
-            "POST", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/tokens", body
+        return dict(
+            await self._admin(
+                "POST", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/tokens", body
+            )
         )
 
     async def admin_revoke_account_token(
         self, admin_token: str, account_id: str, token_id: str
     ) -> None:
         """Revoke an account token."""
-        await self._admin(
-            "DELETE",
-            admin_token,
+        r = await self._http.delete(
             f"/v1/accounts/{quote(account_id, safe='')}/tokens/{quote(token_id, safe='')}",
+            headers=_bearer(admin_token),
         )
+        _raise_for_status(r)
 
     async def delete_session(self, session_id: str, token: str) -> dict[str, Any]:
         """Delete a session. ``token`` is the ``creator_token`` (or the

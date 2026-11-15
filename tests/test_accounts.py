@@ -48,11 +48,38 @@ async def test_create_session_without_account_token_sends_no_auth() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_session_owner_account_id_in_body() -> None:
+async def test_create_session_owner_account_id_with_admin_token() -> None:
     seen: list[httpx.Request] = []
-    async with _client(seen) as c:
-        await c.create_session(owner_account_id="acc_1")
+    async with _client(seen, account_token="acct-tok") as c:
+        await c.create_session(owner_account_id="acc_1", admin_token="adm")
     assert _body(seen[0]) == {"owner_account_id": "acc_1"}
+    assert seen[0].headers["authorization"] == "Bearer adm"
+
+
+@pytest.mark.asyncio
+async def test_create_session_admin_token_replaces_account_token() -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen, account_token="acct-tok") as c:
+        await c.create_session(admin_token="adm")
+    assert seen[0].headers["authorization"] == "Bearer adm"
+
+
+@pytest.mark.asyncio
+async def test_create_session_owner_account_id_without_admin_token_raises() -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen, account_token="acct-tok") as c:
+        with pytest.raises(ValueError, match="owner_account_id requires admin_token"):
+            await c.create_session(owner_account_id="acc_1")
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_account_token_is_stripped() -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen, account_token="  tok \n") as c:
+        assert c._account_token == "tok"
+    async with _client(seen, account_token="   ") as c:
+        assert c._account_token is None
 
 
 @pytest.mark.asyncio
@@ -61,7 +88,7 @@ async def test_env_default_account_token(monkeypatch: pytest.MonkeyPatch) -> Non
     seen: list[httpx.Request] = []
     async with _client(seen) as c:
         assert c._account_token == "env-tok"
-    monkeypatch.setenv("SW_ACCOUNT_TOKEN", "")
+    monkeypatch.setenv("SW_ACCOUNT_TOKEN", "  ")
     async with _client(seen) as c:
         assert c._account_token is None
 

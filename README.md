@@ -100,7 +100,7 @@ request. Relay operators administer accounts with the admin token passed
 explicitly: `admin_create_account`, `admin_list_accounts`,
 `admin_get_account`, `admin_update_account`, `admin_delete_account`,
 `admin_create_account_token`, `admin_revoke_account_token`; and
-`create_session(owner_account_id=...)` creates a session for an account.
+`create_session(owner_account_id=..., admin_token=...)` creates a session for an account (the admin token is then the Bearer; `owner_account_id` without it raises `ValueError`).
 All return the parsed JSON (`None` for revocations) and raise the usual
 typed errors.
 
