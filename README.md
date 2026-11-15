@@ -337,10 +337,11 @@ See [`examples/`](./examples/) for runnable demos including:
 
 ## Versioning
 
-SemVer. `0.x` while the relay is still pre-accounts. Authentication is
+SemVer. `0.x` while the API is still settling. Authentication is
 token-based: join tokens, secret participant tokens, supervisor and
-creator tokens (see "Credentials"); a future accounts/JWT layer will be
-absorbed with a minor bump.
+creator tokens (see "Credentials"). Broker accounts add an optional
+account token for creating and managing sessions; it does not change the
+participant surface.
 
 | SDK | Relay | What's in it |
 |-----|-------|--------------|
