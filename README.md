@@ -80,7 +80,8 @@ asyncio.run(main())
 ## Accounts
 
 An account owns sessions and holds account tokens. Pass one as
-`SessionWeaveClient(account_token=...)` or set `SW_ACCOUNT_TOKEN`; it is
+`SessionWeaveClient(account_token=...)` or set `SW_ACCOUNT_TOKEN` (pass `account_token=""` to ignore the
+environment variable); it is
 sent only by `create_session` (the session becomes the account's) and the
 `me*` methods. Joining never needs it, and it is never sent on join,
 participant or management calls.

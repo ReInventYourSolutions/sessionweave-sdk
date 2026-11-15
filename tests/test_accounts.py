@@ -247,3 +247,19 @@ async def test_admin_error_raises_sdk_error() -> None:
     async with _client(seen, response=resp) as c:
         with pytest.raises(SessionWeaveError):
             await c.admin_get_account("adm", "nope")
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_account_token_does_not_fall_back_to_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SW_ACCOUNT_TOKEN", "env-tok")
+    for explicit in ("", "  "):
+        seen: list[httpx.Request] = []
+        async with _client(seen, account_token=explicit) as c:
+            await c.create_session()
+        assert "authorization" not in seen[0].headers
+    seen = []
+    async with _client(seen) as c:
+        await c.create_session()
+    assert seen[0].headers["authorization"] == "Bearer env-tok"
