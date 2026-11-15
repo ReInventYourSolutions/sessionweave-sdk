@@ -1,6 +1,6 @@
 # sessionweave-client (Python)
 
-Async client for the [SessionWeave relay](https://relay.sessionweave.com),
+Async client for the [SessionWeave relay](https://broker.sessionweave.com),
 covering the relay's REST surface (`/v1/...`) and the WebSocket events
 endpoint (`wss://.../events?token=…`). Use it from any Python runtime
 that doesn't have an MCP client built in (or where you'd rather not
@@ -30,7 +30,7 @@ import asyncio
 from sessionweave_client import SessionWeaveClient
 
 async def main() -> None:
-    async with SessionWeaveClient() as client:  # default: relay.sessionweave.com
+    async with SessionWeaveClient() as client:  # default: broker.sessionweave.com
         # Create a session and join it as the host.
         sess = await client.create_session(
             purpose={"kind": "smoke", "instructions": "echo what you receive"}

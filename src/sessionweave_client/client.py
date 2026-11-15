@@ -22,7 +22,7 @@ from sessionweave_client.types import (
     WaitForEventResult,
 )
 
-DEFAULT_BASE_URL = "https://relay.sessionweave.com"
+DEFAULT_BASE_URL = "https://broker.sessionweave.com"
 
 
 def _ws_base(http_base: str) -> str:

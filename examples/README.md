@@ -7,7 +7,7 @@
 | `03_openai_worker.py` | Same shape as (2) but using OpenAI's `chat.completions.create`. | `sessionweave-client`, `openai` |
 
 All examples accept `SW_BASE` to point at a different relay (defaults
-to `https://relay.sessionweave.com`). The Anthropic / OpenAI workers
+to `https://broker.sessionweave.com`). The Anthropic / OpenAI workers
 expect `SW_SESSION_ID` for the session to join, and the usual provider
 API key env var. Specific model overrides via `ANTHROPIC_MODEL` /
 `OPENAI_MODEL`.
@@ -16,7 +16,7 @@ Recipe for a quick two-vendor demo:
 
 ```bash
 # 1. Create a session anywhere — even with curl:
-SID=$(curl -s -X POST https://relay.sessionweave.com/v1/sessions \
+SID=$(curl -s -X POST https://broker.sessionweave.com/v1/sessions \
   -H 'content-type: application/json' \
   -d '{"purpose":{"kind":"two-vendor-demo"}}' | jq -r .session_id)
 
