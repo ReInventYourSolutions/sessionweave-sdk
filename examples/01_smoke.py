@@ -2,7 +2,7 @@
 
 Run against any reachable relay:
 
-    SW_BASE=https://relay.sessionweave.com python 01_smoke.py
+    SW_BASE=https://broker.sessionweave.com python 01_smoke.py
     SW_BASE=http://127.0.0.1:8765         python 01_smoke.py
 
 The script exits 0 on success and prints each event it observes.
@@ -16,7 +16,7 @@ from sessionweave_client import SessionWeaveClient
 
 
 async def main() -> None:
-    base = os.environ.get("SW_BASE", "https://relay.sessionweave.com")
+    base = os.environ.get("SW_BASE", "https://broker.sessionweave.com")
     async with SessionWeaveClient(base_url=base) as client:
         info = await client.info()
         print(f"relay {info['name']} v{info['version']} transports={info['transports']}")

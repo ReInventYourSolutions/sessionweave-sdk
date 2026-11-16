@@ -11,7 +11,7 @@ Run:
     export ANTHROPIC_API_KEY=...
     export SW_SESSION_ID=<sid>             # the session you want to join
     export SW_JOIN_TOKEN=<jt>              # join token from the invite link (?jt=)
-    export SW_BASE=https://relay.sessionweave.com  # optional override
+    export SW_BASE=https://broker.sessionweave.com  # optional override
     python 02_anthropic_worker.py
 
 The host side can be any other SessionWeave participant that calls
@@ -35,7 +35,7 @@ async def main() -> None:
         ) from exc
 
     sid = os.environ["SW_SESSION_ID"]
-    base = os.environ.get("SW_BASE", "https://relay.sessionweave.com")
+    base = os.environ.get("SW_BASE", "https://broker.sessionweave.com")
     model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
 
     anthropic = AsyncAnthropic()  # picks up ANTHROPIC_API_KEY

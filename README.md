@@ -1,6 +1,6 @@
 # sessionweave-client (Python)
 
-Async client for the [SessionWeave relay](https://relay.sessionweave.com),
+Async client for the [SessionWeave relay](https://broker.sessionweave.com),
 covering the relay's REST surface (`/v1/...`) and the WebSocket events
 endpoint (`wss://.../events?token=…`). Use it from any Python runtime
 that doesn't have an MCP client built in (or where you'd rather not
@@ -30,7 +30,7 @@ import asyncio
 from sessionweave_client import SessionWeaveClient
 
 async def main() -> None:
-    async with SessionWeaveClient() as client:  # default: relay.sessionweave.com
+    async with SessionWeaveClient() as client:  # default: broker.sessionweave.com
         # Create a session and join it as the host.
         sess = await client.create_session(
             purpose={"kind": "smoke", "instructions": "echo what you receive"}
@@ -356,3 +356,4 @@ participant surface.
 | 0.9.0 | 0.29.0+        | `post_order` (note/halt/continue/redirect) and `remove_participant`; `Participant.reply_to_note`; typed errors for paused and removed participants (`participant_paused`, `participant_removed`) |
 | 0.10.0 | 0.30.0+       | `post_order` accepts `undo` (message required); `Participant.reply_to_note(..., outcome=…)` structured undo outcome (status done/partial/impossible, undone, not_reversible) |
 | 0.11.0 | 0.31.0+       | Accounts: `account_token` / `SW_ACCOUNT_TOKEN`, `create_session(owner_account_id=…)`, `me`, `my_tokens`, `create_my_token`, `revoke_my_token`, `my_sessions`, and `admin_*` account administration |
+| 0.11.1 | 0.31.0+       | `SessionWeaveClient(transport=…, ws_connect=…)`: inject the httpx transport and the WebSocket connector (address-pinning embedders such as the Cockpit) |

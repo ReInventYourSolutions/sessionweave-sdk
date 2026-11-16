@@ -11,7 +11,7 @@ Run:
     export OPENAI_API_KEY=...
     export SW_SESSION_ID=<sid>
     export SW_JOIN_TOKEN=<jt>              # join token from the invite link (?jt=)
-    export SW_BASE=https://relay.sessionweave.com  # optional override
+    export SW_BASE=https://broker.sessionweave.com  # optional override
     python 03_openai_worker.py
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ async def main() -> None:
         raise SystemExit("this example requires `pip install openai`") from exc
 
     sid = os.environ["SW_SESSION_ID"]
-    base = os.environ.get("SW_BASE", "https://relay.sessionweave.com")
+    base = os.environ.get("SW_BASE", "https://broker.sessionweave.com")
     model = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
     openai = AsyncOpenAI()

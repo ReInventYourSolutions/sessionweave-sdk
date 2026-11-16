@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse, urlunparse
@@ -22,7 +22,7 @@ from sessionweave_client.types import (
     WaitForEventResult,
 )
 
-DEFAULT_BASE_URL = "https://relay.sessionweave.com"
+DEFAULT_BASE_URL = "https://broker.sessionweave.com"
 
 
 def _ws_base(http_base: str) -> str:
@@ -368,7 +368,8 @@ class Participant:
             f"{ws_base}/v1/sessions/{self.session_id}/participants/me/events"
             f"?token={self.token}"
         )
-        async with websockets.connect(url) as ws:
+        connect = self._owner._ws_connect or websockets.connect
+        async with connect(url) as ws:
             async def _iter() -> AsyncIterator[Event]:
                 try:
                     while True:
@@ -398,7 +399,7 @@ class SessionWeaveClient:
     ``await client.aclose()`` is equivalent.
     """
 
-    __slots__ = ("_account_token", "_http", "base_url")
+    __slots__ = ("_account_token", "_http", "_ws_connect", "base_url")
 
     def __init__(
         self,
@@ -406,14 +407,24 @@ class SessionWeaveClient:
         *,
         timeout: float | httpx.Timeout = 30.0,
         account_token: str | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+        ws_connect: Callable[[str], Any] | None = None,
     ) -> None:
         """``account_token`` (default: ``SW_ACCOUNT_TOKEN``) identifies the
         owning account. It is sent only by ``create_session`` and the
-        ``me*`` methods - never on join, participant or management calls."""
+        ``me*`` methods - never on join, participant or management calls.
+
+        ``transport`` replaces the httpx transport (e.g. one that pins or
+        vets resolved addresses) and ``ws_connect(url)`` replaces
+        ``websockets.connect`` for ``Participant.events()``; both default to
+        the stock behaviour."""
         self.base_url = base_url.rstrip("/")
         raw = account_token if account_token is not None else os.environ.get("SW_ACCOUNT_TOKEN")
         self._account_token = (raw or "").strip() or None
-        self._http = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
+        self._http = httpx.AsyncClient(
+            base_url=self.base_url, timeout=timeout, transport=transport
+        )
+        self._ws_connect = ws_connect
 
     async def __aenter__(self) -> SessionWeaveClient:
         return self
