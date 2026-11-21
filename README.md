@@ -105,6 +105,28 @@ explicitly: `admin_create_account`, `admin_list_accounts`,
 All return the parsed JSON (`None` for revocations) and raise the usual
 typed errors.
 
+### Token networks, approvals and account events
+
+Account tokens can be bound to networks. `create_my_token(label, network_policy=..., approved_networks=[...])`
+(and `admin_create_account_token`) set the binding at creation;
+`my_token_networks(token_id)` / `set_my_token_networks(token_id, network_policy=..., approved_networks=...)`
+read and change it. A call from an unapproved network fails with code
+`network_not_approved` (HTTP 403) and creates a pending approval:
+`my_network_approvals()`, `approve_my_network(approval_id, scope="ip"|"network")`,
+`deny_my_network(approval_id)` (unknown id: `approval_not_found`, 404). Admin
+equivalents: `admin_token_networks`, `admin_set_token_networks`,
+`admin_network_approvals`, `admin_approve_network`, `admin_deny_network`
+(all take `admin_token`, `account_id`).
+
+```python
+page = await client.my_events(after=0, wait=30)   # {"events", "next", "truncated"}
+page = await client.my_events(after=page["next"], wait=30)
+await client.admin_account_events(admin_token, after=0, account_id="acc_1", wait=30)
+```
+
+`wait` long-polls (max 60 s); the HTTP read timeout is extended to `wait + 10` s.
+Errors surface as `SessionWeaveError` with `code`, `message` and `status`.
+
 ## Persistence — opt-in, default Zero Data Retention
 
 Sessions are **ephemeral by default**: the relay holds them only in RAM
@@ -357,3 +379,4 @@ participant surface.
 | 0.10.0 | 0.30.0+       | `post_order` accepts `undo` (message required); `Participant.reply_to_note(..., outcome=…)` structured undo outcome (status done/partial/impossible, undone, not_reversible) |
 | 0.11.0 | 0.31.0+       | Accounts: `account_token` / `SW_ACCOUNT_TOKEN`, `create_session(owner_account_id=…)`, `me`, `my_tokens`, `create_my_token`, `revoke_my_token`, `my_sessions`, and `admin_*` account administration |
 | 0.11.1 | 0.31.0+       | `SessionWeaveClient(transport=…, ws_connect=…)`: inject the httpx transport and the WebSocket connector (address-pinning embedders such as the Cockpit) |
+| 0.12.0 | 0.33.0+       | Token networks (`network_policy`, `approved_networks`), network approvals, account events (`my_events`, `admin_account_events`) |
