@@ -42,6 +42,32 @@ def _raise_for_status(r: httpx.Response) -> None:
     raise from_response(r.status_code, body)
 
 
+def _add_networks(
+    body: dict[str, Any], network_policy: str | None, approved_networks: list[str] | None
+) -> None:
+    if network_policy is not None:
+        body["network_policy"] = network_policy
+    if approved_networks is not None:
+        body["approved_networks"] = approved_networks
+
+
+def _acct_tok_networks(account_id: str, token_id: str) -> str:
+    return f"/v1/accounts/{quote(account_id, safe='')}/tokens/{quote(token_id, safe='')}/networks"
+
+
+def _events_query(
+    after: int, limit: int | None, wait: float | None
+) -> tuple[dict[str, Any], httpx.Timeout | None]:
+    params: dict[str, Any] = {"after": after}
+    if limit is not None:
+        params["limit"] = limit
+    timeout = None
+    if wait is not None:
+        params["wait"] = wait
+        timeout = httpx.Timeout(timeout=float(wait) + 10.0, connect=10.0)
+    return params, timeout
+
+
 def _bearer(token: str) -> dict[str, str]:
     return {"authorization": f"Bearer {token}"}
 
@@ -529,13 +555,20 @@ class SessionWeaveClient:
         return dict(r.json())
 
     async def create_my_token(
-        self, label: str, *, expires_at: str | None = None
+        self,
+        label: str,
+        *,
+        expires_at: str | None = None,
+        network_policy: str | None = None,
+        approved_networks: list[str] | None = None,
     ) -> dict[str, Any]:
         """Mint another account token (``expires_at``: ISO 8601). The secret
-        ``token`` in the response is shown once."""
+        ``token`` in the response is shown once. ``network_policy`` /
+        ``approved_networks`` bind the token to networks."""
         body: dict[str, Any] = {"label": label}
         if expires_at is not None:
             body["expires_at"] = expires_at
+        _add_networks(body, network_policy, approved_networks)
         r = await self._http.post(
             "/v1/me/tokens", headers=self._account_auth(), json=body
         )
@@ -548,6 +581,71 @@ class SessionWeaveClient:
             f"/v1/me/tokens/{quote(token_id, safe='')}", headers=self._account_auth()
         )
         _raise_for_status(r)
+
+    async def _me(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
+    ) -> dict[str, Any]:
+        kw: dict[str, Any] = {}
+        if timeout is not None:
+            kw["timeout"] = timeout
+        r = await self._http.request(
+            method, path, headers=self._account_auth(), json=body, params=params, **kw
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def my_token_networks(self, token_id: str) -> dict[str, Any]:
+        """``{"network_policy", "approved_networks"}`` of one of the account's tokens."""
+        return await self._me("GET", f"/v1/me/tokens/{quote(token_id, safe='')}/networks")
+
+    async def set_my_token_networks(
+        self,
+        token_id: str,
+        *,
+        network_policy: str | None = None,
+        approved_networks: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Change a token's network policy and/or approved networks."""
+        body: dict[str, Any] = {}
+        _add_networks(body, network_policy, approved_networks)
+        return await self._me(
+            "PUT", f"/v1/me/tokens/{quote(token_id, safe='')}/networks", body
+        )
+
+    async def my_network_approvals(self) -> dict[str, Any]:
+        """Pending network approvals for the account's tokens."""
+        return await self._me("GET", "/v1/me/network-approvals")
+
+    async def approve_my_network(self, approval_id: str, scope: str = "ip") -> dict[str, Any]:
+        """Approve a pending network (``scope``: ``"ip"`` or ``"network"``)."""
+        return await self._me(
+            "POST",
+            f"/v1/me/network-approvals/{quote(approval_id, safe='')}/approve",
+            {"scope": scope},
+        )
+
+    async def deny_my_network(self, approval_id: str) -> None:
+        """Deny a pending network approval (204, no body)."""
+        r = await self._http.post(
+            f"/v1/me/network-approvals/{quote(approval_id, safe='')}/deny",
+            headers=self._account_auth(),
+        )
+        _raise_for_status(r)
+
+    async def my_events(
+        self, *, after: int = 0, limit: int | None = None, wait: float | None = None
+    ) -> dict[str, Any]:
+        """The account's event log: ``{"events", "next", "truncated"}``. With
+        ``wait`` (seconds, max 60) the call long-polls; the read timeout is
+        ``wait + 10`` s."""
+        params, timeout = _events_query(after, limit, wait)
+        return await self._me("GET", "/v1/me/events", params=params, timeout=timeout)
 
     async def my_sessions(self) -> dict[str, Any]:
         """The account's sessions: ``{"sessions": [{session_id, suspended,
@@ -562,9 +660,15 @@ class SessionWeaveClient:
         admin_token: str,
         path: str,
         body: dict[str, Any] | None = None,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
     ) -> Any:
+        kw: dict[str, Any] = {}
+        if timeout is not None:
+            kw["timeout"] = timeout
         r = await self._http.request(
-            method, path, headers=_bearer(admin_token), json=body
+            method, path, headers=_bearer(admin_token), json=body, params=params, **kw
         )
         _raise_for_status(r)
         return _json_or_none(r)
@@ -637,14 +741,98 @@ class SessionWeaveClient:
         label: str,
         *,
         expires_at: str | None = None,
+        network_policy: str | None = None,
+        approved_networks: list[str] | None = None,
     ) -> dict[str, Any]:
         """Mint an account token (secret shown once)."""
         body: dict[str, Any] = {"label": label}
         if expires_at is not None:
             body["expires_at"] = expires_at
+        _add_networks(body, network_policy, approved_networks)
         return dict(
             await self._admin(
                 "POST", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/tokens", body
+            )
+        )
+
+    async def admin_token_networks(
+        self, admin_token: str, account_id: str, token_id: str
+    ) -> dict[str, Any]:
+        """``{"network_policy", "approved_networks"}`` of an account token."""
+        return dict(
+            await self._admin("GET", admin_token, _acct_tok_networks(account_id, token_id))
+        )
+
+    async def admin_set_token_networks(
+        self,
+        admin_token: str,
+        account_id: str,
+        token_id: str,
+        *,
+        network_policy: str | None = None,
+        approved_networks: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Change an account token's network policy and/or approved networks."""
+        body: dict[str, Any] = {}
+        _add_networks(body, network_policy, approved_networks)
+        return dict(
+            await self._admin(
+                "PUT", admin_token, _acct_tok_networks(account_id, token_id), body
+            )
+        )
+
+    async def admin_network_approvals(
+        self, admin_token: str, account_id: str
+    ) -> dict[str, Any]:
+        """Pending network approvals of an account."""
+        return dict(
+            await self._admin(
+                "GET", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/network-approvals"
+            )
+        )
+
+    async def admin_approve_network(
+        self, admin_token: str, account_id: str, approval_id: str, scope: str = "ip"
+    ) -> dict[str, Any]:
+        """Approve a pending network (``scope``: ``"ip"`` or ``"network"``)."""
+        return dict(
+            await self._admin(
+                "POST",
+                admin_token,
+                f"/v1/accounts/{quote(account_id, safe='')}/network-approvals/"
+                f"{quote(approval_id, safe='')}/approve",
+                {"scope": scope},
+            )
+        )
+
+    async def admin_deny_network(
+        self, admin_token: str, account_id: str, approval_id: str
+    ) -> None:
+        """Deny a pending network approval (204, no body)."""
+        await self._admin(
+            "POST",
+            admin_token,
+            f"/v1/accounts/{quote(account_id, safe='')}/network-approvals/"
+            f"{quote(approval_id, safe='')}/deny",
+        )
+
+    async def admin_account_events(
+        self,
+        admin_token: str,
+        *,
+        after: int = 0,
+        account_id: str | None = None,
+        limit: int | None = None,
+        wait: float | None = None,
+    ) -> dict[str, Any]:
+        """Event log of all accounts (or one): ``{"events", "next",
+        "truncated"}``. Long-polls with ``wait``; read timeout ``wait + 10`` s."""
+        params, timeout = _events_query(after, limit, wait)
+        if account_id is not None:
+            params["account_id"] = account_id
+        return dict(
+            await self._admin(
+                "GET", admin_token, "/v1/accounts/events", params=params, timeout=timeout
             )
         )
 
