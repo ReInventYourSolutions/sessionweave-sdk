@@ -630,11 +630,13 @@ class SessionWeaveClient:
             {"scope": scope},
         )
 
-    async def deny_my_network(self, approval_id: str) -> dict[str, Any]:
-        """Deny a pending network approval."""
-        return await self._me(
-            "POST", f"/v1/me/network-approvals/{quote(approval_id, safe='')}/deny"
+    async def deny_my_network(self, approval_id: str) -> None:
+        """Deny a pending network approval (204, no body)."""
+        r = await self._http.post(
+            f"/v1/me/network-approvals/{quote(approval_id, safe='')}/deny",
+            headers=self._account_auth(),
         )
+        _raise_for_status(r)
 
     async def my_events(
         self, *, after: int = 0, limit: int | None = None, wait: float | None = None
@@ -805,15 +807,13 @@ class SessionWeaveClient:
 
     async def admin_deny_network(
         self, admin_token: str, account_id: str, approval_id: str
-    ) -> dict[str, Any]:
-        """Deny a pending network approval."""
-        return dict(
-            await self._admin(
-                "POST",
-                admin_token,
-                f"/v1/accounts/{quote(account_id, safe='')}/network-approvals/"
-                f"{quote(approval_id, safe='')}/deny",
-            )
+    ) -> None:
+        """Deny a pending network approval (204, no body)."""
+        await self._admin(
+            "POST",
+            admin_token,
+            f"/v1/accounts/{quote(account_id, safe='')}/network-approvals/"
+            f"{quote(approval_id, safe='')}/deny",
         )
 
     async def admin_account_events(

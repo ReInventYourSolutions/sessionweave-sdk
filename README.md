@@ -125,6 +125,7 @@ await client.admin_account_events(admin_token, after=0, account_id="acc_1", wait
 ```
 
 `wait` long-polls (max 60 s); the HTTP read timeout is extended to `wait + 10` s.
+The deny calls return `None` (the relay answers 204); the others return the parsed JSON.
 Errors surface as `SessionWeaveError` with `code`, `message` and `status`.
 
 ## Persistence — opt-in, default Zero Data Retention

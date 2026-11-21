@@ -126,3 +126,31 @@ async def test_network_errors_surface_code() -> None:
             with pytest.raises(SessionWeaveError) as ei:
                 await c.my_events()
         assert ei.value.code == code and ei.value.message == "nope" and ei.value.status == status
+
+
+@pytest.mark.asyncio
+async def test_deny_handles_204() -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen, response=httpx.Response(204)) as c:
+        assert await c.deny_my_network("a1") is None
+        assert await c.admin_deny_network("adm", "acc", "a1") is None
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_me_calls_without_account_token_raise_before_http() -> None:
+    seen: list[httpx.Request] = []
+    c = _client(seen)
+    c._account_token = None
+    async with c:
+        for call in (
+            c.my_events(),
+            c.my_token_networks("t"),
+            c.set_my_token_networks("t", network_policy="any"),
+            c.my_network_approvals(),
+            c.approve_my_network("a"),
+            c.deny_my_network("a"),
+        ):
+            with pytest.raises(ValueError):
+                await call
+    assert seen == []
