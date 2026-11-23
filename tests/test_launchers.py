@@ -100,3 +100,14 @@ async def test_set_coordinator() -> None:
     assert _body(seen[0]) == {"participant_id": "p2"}
     assert _body(seen[1]) == {"participant_id": None}
     assert seen[0].headers["authorization"] == "Bearer creator-tok"
+
+
+def test_version_matches_the_package() -> None:
+    import tomllib
+    from pathlib import Path
+
+    import sessionweave_client
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    version = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert sessionweave_client.__version__ == version

@@ -42,7 +42,7 @@ from sessionweave_client.types import (
     WaitForEventResult,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.13.0"
 
 __all__ = [
     "AlreadyRespondedError",
