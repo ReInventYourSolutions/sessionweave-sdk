@@ -26,8 +26,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/EnzinoBB/SessionWeave"
-Relay = "https://github.com/ReInventYourSolutions/sessionweave-broker"
+Homepage = "https://github.com/ReInventYourSolutions/SessionWeave"
+Broker = "https://github.com/ReInventYourSolutions/SessionWeave/tree/main/broker"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sessionweave_client"]
