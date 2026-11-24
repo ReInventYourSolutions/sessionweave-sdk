@@ -342,6 +342,84 @@ class Participant:
             timed_out=bool(data["timed_out"]),
         )
 
+    async def discover_agents(
+        self,
+        domain: str,
+        *,
+        role: str | None = None,
+        capability: str | None = None,
+    ) -> dict[str, Any]:
+        """List the launchable agent profiles in ``domain``.
+
+        Only the session's coordinator may call this through a participant (the
+        REST route also accepts the creator, owning-account or admin token).
+        Optionally filter by ``role`` and ``capability``. Each item carries
+        ``owner`` (the launcher owner's account name, None in open mode) and
+        ``own`` (the session owner's own launcher); own launchers come first —
+        prefer them. Raises a ``SessionWeaveError`` (``permission_denied``)
+        for a participant that is not the coordinator.
+        """
+        params = {"session_id": self.session_id, "domain": domain}
+        if role is not None:
+            params["role"] = role
+        if capability is not None:
+            params["capability"] = capability
+        r = await self._owner._http.get("/v1/agents", params=params, headers=self._auth)
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def list_domains(self) -> dict[str, Any]:
+        """List the domains that have launchable agents (the session's
+        coordinator; the REST route also accepts the creator/admin credential)."""
+        r = await self._owner._http.get(
+            "/v1/agents/domains", params={"session_id": self.session_id}, headers=self._auth
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def launch_agent(
+        self,
+        *,
+        task: str,
+        launcher_id: str | None = None,
+        profile_id: str | None = None,
+        domain: str | None = None,
+        role: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask a launcher to start an agent for ``task`` (the session's
+        coordinator; the REST route also accepts the creator/admin credential).
+
+        Select either ``launcher_id`` + ``profile_id`` or ``domain`` + ``role``.
+        Returns ``{launch_id, status, launcher_id, machine, owner, own}``. The
+        agent joins by itself (``participant.joined``) and, when the task is
+        done, sends its result to the coordinator as a command
+        (``command.received``); read the launch with ``launch_status``.
+        """
+        body: dict[str, Any] = {"task": task}
+        for key, val in (
+            ("launcher_id", launcher_id),
+            ("profile_id", profile_id),
+            ("domain", domain),
+            ("role", role),
+        ):
+            if val is not None:
+                body[key] = val
+        r = await self._owner._http.post(
+            f"/v1/sessions/{self.session_id}/agents", json=body, headers=self._auth
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def launch_status(self, launch_id: str) -> dict[str, Any]:
+        """Status of one launch: pending, started, joined, failed (``error``) or
+        stopped (``reason``), with launcher_id, machine, owner and own."""
+        r = await self._owner._http.get(
+            f"/v1/sessions/{self.session_id}/agents/{quote(launch_id, safe='')}",
+            headers=self._auth,
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
     async def leave(self, *, feedback: dict[str, Any] | None = None) -> None:
         """Leave the session, optionally attaching exit ``feedback``.
 
@@ -948,6 +1026,19 @@ class SessionWeaveClient:
         pid = quote(participant_id, safe="")
         r = await self._http.delete(
             f"/v1/sessions/{session_id}/participants/{pid}",
+            headers=_bearer(token),
+        )
+        _raise_for_status(r)
+        return dict(r.json())
+
+    async def set_coordinator(
+        self, session_id: str, participant_id: str | None, token: str
+    ) -> dict[str, Any]:
+        """Assign, move or clear (``None``) the session's coordinator (creator,
+        owner or admin token). Returns ``{coordinator_id}``."""
+        r = await self._http.put(
+            f"/v1/sessions/{session_id}/coordinator",
+            json={"participant_id": participant_id},
             headers=_bearer(token),
         )
         _raise_for_status(r)

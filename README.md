@@ -381,3 +381,4 @@ participant surface.
 | 0.11.0 | 0.31.0+       | Accounts: `account_token` / `SW_ACCOUNT_TOKEN`, `create_session(owner_account_id=…)`, `me`, `my_tokens`, `create_my_token`, `revoke_my_token`, `my_sessions`, and `admin_*` account administration |
 | 0.11.1 | 0.31.0+       | `SessionWeaveClient(transport=…, ws_connect=…)`: inject the httpx transport and the WebSocket connector (address-pinning embedders such as the Cockpit) |
 | 0.12.0 | 0.33.0+       | Token networks (`network_policy`, `approved_networks`), network approvals, account events (`my_events`, `admin_account_events`) |
+| 0.13.0 | 0.34.0+       | Agent launchers: `Participant.discover_agents`, `list_domains`, `launch_agent`, `launch_status` (the session coordinator; the REST routes also take the creator/admin credential), `SessionWeaveClient.set_coordinator` |
