@@ -411,8 +411,10 @@ class Participant:
         return dict(r.json())
 
     async def launch_status(self, launch_id: str) -> dict[str, Any]:
-        """Status of one launch: pending, started, joined, failed (``error``) or
-        stopped (``reason``), with launcher_id, machine, owner and own."""
+        """Status of one launch: pending, started, joined, failed (``error``,
+        and ``message`` when the launcher explained it, e.g.
+        ``runtime_unavailable``) or stopped (``reason``, e.g. ``session_cold``
+        or ``runtime_failed``), with launcher_id, machine, owner and own."""
         r = await self._owner._http.get(
             f"/v1/sessions/{self.session_id}/agents/{quote(launch_id, safe='')}",
             headers=self._auth,
@@ -1021,7 +1023,10 @@ class SessionWeaveClient:
     async def remove_participant(
         self, session_id: str, token: str, participant_id: str
     ) -> dict[str, Any]:
-        """Remove a participant (creator or admin token). Returns
+        """Remove a participant. ``token``: the creator token, the owning
+        account's token or the admin token (any participant), or the session
+        coordinator's participant token (launched agents only: those with
+        ``metadata.launch_id``). Returns
         ``{removed: [...], join_tokens_invalidated: n}``."""
         pid = quote(participant_id, safe="")
         r = await self._http.delete(

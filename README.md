@@ -215,6 +215,8 @@ await client.post_order(sid, supervisor_token, kind="halt", target=pid)
 await client.post_order(sid, supervisor_token, kind="redirect", target="all",
                         message="Focus on the API tests")
 await client.remove_participant(sid, creator_token, pid)  # {removed, join_tokens_invalidated}
+# The session's coordinator may remove the agents it launched with its own
+# participant token: client.remove_participant(sid, coordinator_token, agent_pid)
 await client.post_order(sid, supervisor_token, kind="undo", target=pid,
                         message="Revert the last change")   # pauses like halt
 await me.reply_to_note(note_id, "Understood, switching")   # participant side
