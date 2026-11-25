@@ -26,12 +26,6 @@ pip install sessionweave-sdk
 import sessionweave_client
 ```
 
-Until the first PyPI release, install it from a release tag of this repository:
-
-```bash
-pip install "git+https://github.com/ReInventYourSolutions/sessionweave-sdk@v0.13.0"
-```
-
 Requires Python 3.11+, `httpx>=0.27`, and `websockets>=12.0`.
 
 ## Quick start
