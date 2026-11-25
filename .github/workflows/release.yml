@@ -1,0 +1,50 @@
+name: release
+# Tag vX.Y.Z (matching pyproject.toml and sessionweave_client.__version__) to
+# publish `sessionweave-sdk` to PyPI with trusted publishing, then create the
+# GitHub release with the same files. PyPI side: a (pending) trusted publisher
+# for this repository, workflow `release.yml`, environment `pypi`.
+# One job, no upload-artifact: Actions artifact storage shares the account's
+# (small) quota with GHCR and has been full before.
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sessionweave-sdk/
+    permissions:
+      id-token: write   # trusted publishing (OIDC)
+      contents: write   # GitHub release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify tag matches the package version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pyproject_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          module_version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/sessionweave_client/__init__.py)
+          echo "tag=$tag_version pyproject=$pyproject_version module=$module_version"
+          [ "$tag_version" = "$pyproject_version" ] && [ "$tag_version" = "$module_version" ] \
+            || { echo "::error::tag $GITHUB_REF_NAME does not match pyproject ($pyproject_version) / __version__ ($module_version)"; exit 1; }
+          echo "VERSION=$tag_version" >> "$GITHUB_ENV"
+      - run: pip install -e '.[dev]' build twine
+      - run: ruff check . && mypy src && pytest -q
+      - run: python -m build
+      - run: twine check dist/*
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "SDK ${{ github.ref_name }}"
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          generate_release_notes: true
+          body: |
+            `pip install sessionweave-sdk==${{ env.VERSION }}`, then `import sessionweave_client`.

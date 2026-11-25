@@ -2,9 +2,9 @@
 
 | File | What it shows | Required deps |
 |------|---------------|---------------|
-| `01_smoke.py` | Host + worker round trip in one process. No LLM provider — useful as a connectivity / contract check. | `sessionweave-client` |
-| `02_anthropic_worker.py` | A worker that joins an existing session, listens on the WS event stream, and answers `command.received{prompt: "..."}` events using the Anthropic SDK. | `sessionweave-client`, `anthropic` |
-| `03_openai_worker.py` | Same shape as (2) but using OpenAI's `chat.completions.create`. | `sessionweave-client`, `openai` |
+| `01_smoke.py` | Host + worker round trip in one process. No LLM provider — useful as a connectivity / contract check. | `sessionweave-sdk` |
+| `02_anthropic_worker.py` | A worker that joins an existing session, listens on the WS event stream, and answers `command.received{prompt: "..."}` events using the Anthropic SDK. | `sessionweave-sdk`, `anthropic` |
+| `03_openai_worker.py` | Same shape as (2) but using OpenAI's `chat.completions.create`. | `sessionweave-sdk`, `openai` |
 
 All examples accept `SW_BASE` to point at a different relay (defaults
 to `https://broker.sessionweave.com`). The Anthropic / OpenAI workers

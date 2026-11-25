@@ -1,24 +1,35 @@
-# sessionweave-client (Python)
+# SessionWeave Python SDK (`sessionweave-sdk`)
 
-Async client for the [SessionWeave relay](https://broker.sessionweave.com),
-covering the relay's REST surface (`/v1/...`) and the WebSocket events
-endpoint (`wss://.../events?token=…`). Use it from any Python runtime
-that doesn't have an MCP client built in (or where you'd rather not
-plumb one) and still want to participate in a SessionWeave session.
+> **Guide:** how sessions, roles, invite links, accounts and the agent registry work is in the
+> [SessionWeave broker guide](https://github.com/ReInventYourSolutions/sessionweave-broker/blob/main/docs/guide/README.md).
+
+Async client for the [SessionWeave broker](https://github.com/ReInventYourSolutions/sessionweave-broker)
+(hosted at <https://broker.sessionweave.com>), covering the broker's REST surface (`/v1/...`)
+and the WebSocket events endpoint (`wss://.../events?token=…`). Use it from any Python runtime
+that doesn't have an MCP client built in (or where you'd rather not plumb one) and still want
+to participate in a SessionWeave session.
 
 For runtimes that *do* speak MCP (Claude Code, opencode, etc.) the
-[`sessionweave-participant` skill][skill] in the parent repo is the
-preferred path.
+[`sessionweave-participant` skill][skill] is the preferred path.
 
-[skill]: ../../skills/sessionweave-participant/
+[skill]: https://github.com/ReInventYourSolutions/sessionweave-broker/tree/main/skills/sessionweave-participant
 
 ## Install
 
-The SDK isn't on PyPI yet (sub-project #1 surface); install editable
-straight from the repo for now:
+The distribution is called `sessionweave-sdk`; the import package is `sessionweave_client`:
 
 ```bash
-pip install -e SDK/python
+pip install sessionweave-sdk
+```
+
+```python
+import sessionweave_client
+```
+
+Until the first PyPI release, install it from a release tag of this repository:
+
+```bash
+pip install "git+https://github.com/ReInventYourSolutions/sessionweave-sdk@v0.13.0"
 ```
 
 Requires Python 3.11+, `httpx>=0.27`, and `websockets>=12.0`.
@@ -354,7 +365,7 @@ All inherit from `SessionWeaveError`, which carries the original
 
 ## Examples
 
-See [`examples/`](./examples/) for runnable demos including:
+See [`examples/`](https://github.com/ReInventYourSolutions/sessionweave-sdk/tree/main/examples) for runnable demos including:
 
 - `01_smoke.py` — host + worker round trip in one process (no LLM).
 - `02_anthropic_worker.py` — worker driven by the Anthropic Python SDK.
@@ -368,7 +379,7 @@ creator tokens (see "Credentials"). Broker accounts add an optional
 account token for creating and managing sessions; it does not change the
 participant surface.
 
-| SDK | Relay | What's in it |
+| SDK | Broker | What's in it |
 |-----|-------|--------------|
 | 0.1.0 | 0.7.0 – 0.9.3 | Initial release: `SessionWeaveClient` + `Participant`, REST + WS event stream, typed exceptions |
 | 0.2.0 | 0.10.0+        | `Participant.leave(feedback=…)` for the structured exit report |
@@ -384,3 +395,8 @@ participant surface.
 | 0.11.1 | 0.31.0+       | `SessionWeaveClient(transport=…, ws_connect=…)`: inject the httpx transport and the WebSocket connector (address-pinning embedders such as the Cockpit) |
 | 0.12.0 | 0.33.0+       | Token networks (`network_policy`, `approved_networks`), network approvals, account events (`my_events`, `admin_account_events`) |
 | 0.13.0 | 0.34.0+       | Agent launchers: `Participant.discover_agents`, `list_domains`, `launch_agent`, `launch_status` (the session coordinator; the REST routes also take the creator/admin credential), `SessionWeaveClient.set_coordinator` |
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](https://github.com/ReInventYourSolutions/sessionweave-sdk/blob/main/LICENSE)
+and [`NOTICE`](https://github.com/ReInventYourSolutions/sessionweave-sdk/blob/main/NOTICE).

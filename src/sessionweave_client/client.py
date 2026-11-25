@@ -115,7 +115,8 @@ class Participant:
 
     Authentication: ``token`` is the secret ``participant_token`` returned
     at join time (distinct from ``participant_id``) and is sent as
-    ``Authorization: Bearer <token>`` on every REST call, and as ``?token=<token>`` on the WS upgrade
+    ``Authorization: Bearer <token>`` on every REST call, and as
+    ``?token=<token>`` on the WS upgrade
     (browsers can't set custom headers on a WebSocket handshake).
     """
 
@@ -303,7 +304,7 @@ class Participant:
         The HTTP read timeout for *this call* is automatically extended
         to ``timeout_seconds + 10`` so the connection survives the
         full server-side budget. Without this override, the client's
-        per-client ``httpx`` default (typically 5–30 s) would close the
+        per-client ``httpx`` default (typically 5-30 s) would close the
         socket before the relay finishes waiting; the relay's
         ``0.17.3+`` disconnect-cancellation path then voids the wait
         and the next call proceeds cleanly — but every aborted call

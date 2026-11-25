@@ -7,7 +7,7 @@ emit text out can participate.
 
 Run:
 
-    pip install openai sessionweave-client
+    pip install openai sessionweave-sdk
     export OPENAI_API_KEY=...
     export SW_SESSION_ID=<sid>
     export SW_JOIN_TOKEN=<jt>              # join token from the invite link (?jt=)

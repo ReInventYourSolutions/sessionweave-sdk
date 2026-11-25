@@ -7,7 +7,7 @@ response over ``session_respond``.
 
 Run:
 
-    pip install anthropic sessionweave-client
+    pip install anthropic sessionweave-sdk
     export ANTHROPIC_API_KEY=...
     export SW_SESSION_ID=<sid>             # the session you want to join
     export SW_JOIN_TOKEN=<jt>              # join token from the invite link (?jt=)
