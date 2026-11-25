@@ -30,8 +30,10 @@ jobs:
           pyproject_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           module_version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/sessionweave_client/__init__.py)
           echo "tag=$tag_version pyproject=$pyproject_version module=$module_version"
-          [ "$tag_version" = "$pyproject_version" ] && [ "$tag_version" = "$module_version" ] \
-            || { echo "::error::tag $GITHUB_REF_NAME does not match pyproject ($pyproject_version) / __version__ ($module_version)"; exit 1; }
+          if [ "$tag_version" != "$pyproject_version" ] || [ "$tag_version" != "$module_version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject ($pyproject_version) / __version__ ($module_version)"
+            exit 1
+          fi
           echo "VERSION=$tag_version" >> "$GITHUB_ENV"
       - run: pip install -e '.[dev]' build twine
       - run: ruff check . && mypy src && pytest -q
