@@ -41,6 +41,10 @@ jobs:
       - run: twine check dist/*
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # PEP 740 provenance: the release guards of the broker, Runner and
+          # Cockpit require it (publisher repository + release.yml).
+          attestations: true
       - uses: softprops/action-gh-release@v2
         with:
           name: "SDK ${{ github.ref_name }}"
