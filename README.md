@@ -416,7 +416,7 @@ participant surface.
 | 0.11.1 | 0.31.0+       | `SessionWeaveClient(transport=…, ws_connect=…)`: inject the httpx transport and the WebSocket connector (address-pinning embedders such as the Cockpit) |
 | 0.12.0 | 0.33.0+       | Token networks (`network_policy`, `approved_networks`), network approvals, account events (`my_events`, `admin_account_events`) |
 | 0.13.0 | 0.34.0+       | Agent launchers: `Participant.discover_agents`, `list_domains`, `launch_agent`, `launch_status` (the session coordinator; the REST routes also take the creator/admin credential), `SessionWeaveClient.set_coordinator` |
-| 0.14.0 | 0.36.0+       | Machines and agent definitions: `my_launchers`, `my_launcher`, `deploy_my_definition`, `remove_my_definition`, `forget_my_launcher`, `browse_my_launcher`, `my_launcher_processes` (account) and the open-mode twins `launchers`, `launcher`, `deploy_definition`, `remove_definition`, `forget_launcher`, `browse_launcher`, `launcher_processes` |
+| 0.14.0 | 0.36.0+       | Machines and agent definitions: `my_launchers`, `my_launcher`, `deploy_my_definition`, `remove_my_definition`, `forget_my_launcher`, `browse_my_launcher`, `my_launcher_processes` (account) and the open-mode twins `launchers`, `launcher`, `deploy_definition`, `remove_definition`, `forget_launcher`, `browse_launcher`, `launcher_processes`; path ids that are empty, only dots (`.`, `..`) or contain `/` raise `ValueError` before any request |
 
 ## License
 

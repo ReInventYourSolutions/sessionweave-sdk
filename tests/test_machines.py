@@ -35,11 +35,11 @@ async def test_deploy_my_definition() -> None:
     seen: list[httpx.Request] = []
     resp = httpx.Response(200, json={"definition_id": "obs", "revision": 1, "state": "sent"})
     async with _client(seen, response=resp) as c:
-        out = await c.deploy_my_definition(KEY, {"id": "obs/x"})
+        out = await c.deploy_my_definition(KEY, {"id": "obs.x"})
     assert seen[0].method == "PUT"
     raw = seen[0].url.raw_path.decode().split("?")[0]
-    assert raw == f"/v1/me/launchers/{KEY}/definitions/obs%2Fx"
-    assert _body(seen[0]) == {"definition": {"id": "obs/x"}} and out["revision"] == 1
+    assert raw == f"/v1/me/launchers/{KEY}/definitions/obs.x"
+    assert _body(seen[0]) == {"definition": {"id": "obs.x"}} and out["revision"] == 1
     assert seen[0].headers["authorization"] == "Bearer acct"
 
 
@@ -153,13 +153,13 @@ async def test_processes_cursor_accepts_digit_string() -> None:
 @pytest.mark.asyncio
 async def test_path_and_query_values_are_encoded() -> None:
     seen: list[httpx.Request] = []
-    odd = "a b/c?d#e&f=g%h"
+    odd = "a b\\c?d#e&f=g%h"
     async with _client(seen) as c:
         await c.my_launcher(odd)
         await c.remove_my_definition(KEY, odd)
         await c.browse_my_launcher(KEY, "/srv/my dir&x=1#f?", cursor="a&b=c")
         await c.my_launcher_processes(KEY, query="ng inx&a=b#c")
-    enc = "a%20b%2Fc%3Fd%23e%26f%3Dg%25h"
+    enc = "a%20b%5Cc%3Fd%23e%26f%3Dg%25h"
     assert seen[0].url.raw_path.decode() == f"/v1/me/launchers/{enc}"
     assert seen[1].url.raw_path.decode() == f"/v1/me/launchers/{KEY}/definitions/{enc}"
     assert dict(seen[2].url.params) == {"path": "/srv/my dir&x=1#f?", "cursor": "a&b=c"}
@@ -171,12 +171,12 @@ async def test_path_and_query_values_are_encoded() -> None:
 @pytest.mark.asyncio
 async def test_open_mode_deploy_body_and_no_credentials() -> None:
     seen: list[httpx.Request] = []
-    d = {"id": "obs/x", "runtime": "claude"}
+    d = {"id": "obs.x", "runtime": "claude"}
     async with _client(seen, token="acct") as c:
         await c.deploy_definition(KEY, d)
     assert seen[0].method == "PUT"
     assert _body(seen[0]) == {"definition": d}
-    assert seen[0].url.raw_path.decode() == f"/v1/launchers/{KEY}/definitions/obs%2Fx"
+    assert seen[0].url.raw_path.decode() == f"/v1/launchers/{KEY}/definitions/obs.x"
     assert "authorization" not in seen[0].headers
 
 
@@ -190,3 +190,47 @@ async def test_deploy_requires_definition_id(definition: dict[str, Any]) -> None
         with pytest.raises(ValueError, match="id"):
             await c.deploy_definition(KEY, definition)
     assert seen == []
+
+
+BAD_SEGMENTS = ["", ".", "..", "...", "a/b", "/", "../x", "x/.."]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", BAD_SEGMENTS)
+async def test_bad_path_segments_rejected_before_any_request(bad: str) -> None:
+    seen: list[httpx.Request] = []
+    d = {"id": bad}
+    async with _client(seen) as c:
+        calls = [
+            c.my_launcher(bad),
+            c.forget_my_launcher(bad),
+            c.browse_my_launcher(bad),
+            c.my_launcher_processes(bad),
+            c.launcher(bad),
+            c.forget_launcher(bad),
+            c.browse_launcher(bad),
+            c.launcher_processes(bad),
+            c.remove_my_definition(KEY, bad),
+            c.remove_definition(KEY, bad),
+            c.remove_my_definition(bad, "d1"),
+            c.remove_definition(bad, "d1"),
+            c.deploy_my_definition(bad, {"id": "d1"}),
+            c.deploy_definition(bad, {"id": "d1"}),
+        ]
+        if bad.strip():
+            calls += [c.deploy_my_definition(KEY, d), c.deploy_definition(KEY, d)]
+        for coro in calls:
+            with pytest.raises(ValueError, match=r"path segment|id"):
+                await coro
+    assert seen == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ok", ["a.b", ".hidden", "a..b", "d_1-x", "lk_" + "b" * 32])
+async def test_normal_ids_still_encode(ok: str) -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen) as c:
+        await c.remove_my_definition(KEY, ok)
+        await c.remove_definition(KEY, ok)
+    assert seen[0].url.raw_path.decode() == f"/v1/me/launchers/{KEY}/definitions/{ok}"
+    assert seen[1].url.raw_path.decode() == f"/v1/launchers/{KEY}/definitions/{ok}"

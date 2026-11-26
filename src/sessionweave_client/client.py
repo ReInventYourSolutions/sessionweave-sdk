@@ -52,6 +52,13 @@ def _add_networks(
 
 
 def _lk_path(base: str, *segments: str) -> str:
+    # httpx collapses dot segments (``..`` and ``%2e%2e``), which would turn
+    # ``remove_my_definition(key, "..")`` into ``DELETE .../launchers/<key>``.
+    for x in segments:
+        if not x or set(x) == {"."} or "/" in x:
+            raise ValueError(
+                f"invalid path segment {x!r}: must be non-empty, not only dots, no '/'"
+            )
     return "/".join([base, *(quote(x, safe="") for x in segments)])
 
 
