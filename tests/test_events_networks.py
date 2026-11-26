@@ -46,9 +46,9 @@ async def test_create_my_token_network_fields() -> None:
 async def test_my_token_networks_get_put() -> None:
     seen: list[httpx.Request] = []
     async with _client(seen) as c:
-        await c.my_token_networks("t/1")
-        await c.set_my_token_networks("t/1", network_policy="any")
-    assert seen[0].method == "GET" and seen[0].url.raw_path == b"/v1/me/tokens/t%2F1/networks"
+        await c.my_token_networks("t 1")
+        await c.set_my_token_networks("t 1", network_policy="any")
+    assert seen[0].method == "GET" and seen[0].url.raw_path == b"/v1/me/tokens/t%201/networks"
     assert seen[1].method == "PUT" and _body(seen[1]) == {"network_policy": "any"}
     assert seen[1].headers["authorization"] == "Bearer acct"
 

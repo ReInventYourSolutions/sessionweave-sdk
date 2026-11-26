@@ -51,15 +51,20 @@ def _add_networks(
         body["approved_networks"] = approved_networks
 
 
+def _seg(x: str) -> str:
+    """Percent-encode one caller-supplied URL path segment.
+
+    httpx collapses dot segments (``..``), which would turn e.g.
+    ``remove_my_definition(key, "..")`` into ``DELETE .../launchers/<key>``.
+    So empty, dots-only and ``/``-containing values raise before any request.
+    """
+    if not isinstance(x, str) or not x or set(x) == {"."} or "/" in x:
+        raise ValueError(f"invalid path segment {x!r}: must be non-empty, not only dots, no '/'")
+    return quote(x, safe="")
+
+
 def _lk_path(base: str, *segments: str) -> str:
-    # httpx collapses dot segments (``..`` and ``%2e%2e``), which would turn
-    # ``remove_my_definition(key, "..")`` into ``DELETE .../launchers/<key>``.
-    for x in segments:
-        if not x or set(x) == {"."} or "/" in x:
-            raise ValueError(
-                f"invalid path segment {x!r}: must be non-empty, not only dots, no '/'"
-            )
-    return "/".join([base, *(quote(x, safe="") for x in segments)])
+    return "/".join([base, *(_seg(x) for x in segments)])
 
 
 def _browse_params(
@@ -103,7 +108,7 @@ def _process_params(
 
 
 def _acct_tok_networks(account_id: str, token_id: str) -> str:
-    return f"/v1/accounts/{quote(account_id, safe='')}/tokens/{quote(token_id, safe='')}/networks"
+    return f"/v1/accounts/{_seg(account_id)}/tokens/{_seg(token_id)}/networks"
 
 
 def _events_query(
@@ -214,7 +219,7 @@ class Participant:
 
     async def list_participants(self) -> list[dict[str, Any]]:
         r = await self._owner._http.get(
-            f"/v1/sessions/{self.session_id}/participants", headers=self._auth
+            f"/v1/sessions/{_seg(self.session_id)}/participants", headers=self._auth
         )
         _raise_for_status(r)
         return list(r.json()["roster"])
@@ -237,7 +242,7 @@ class Participant:
         if metadata is not None:
             body["metadata"] = metadata
         r = await self._owner._http.patch(
-            f"/v1/sessions/{self.session_id}/participants/me",
+            f"/v1/sessions/{_seg(self.session_id)}/participants/me",
             headers=self._auth,
             json=body,
         )
@@ -271,7 +276,7 @@ class Participant:
         if command_id is not None:
             body["command_id"] = command_id
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/commands",
+            f"/v1/sessions/{_seg(self.session_id)}/commands",
             headers=self._auth,
             json=body,
         )
@@ -286,7 +291,7 @@ class Participant:
         status: ResponseStatus = "ok",
     ) -> None:
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/commands/{command_id}/responses",
+            f"/v1/sessions/{_seg(self.session_id)}/commands/{_seg(command_id)}/responses",
             headers=self._auth,
             json={"status": status, "payload": payload},
         )
@@ -308,12 +313,12 @@ class Participant:
         Raises ``NoteNotFoundError`` for an unknown ``note_id`` and
         ``PermissionDeniedError`` if the note was addressed to someone else.
         """
-        note = quote(note_id, safe="")
+        note = _seg(note_id)
         body: dict[str, Any] = {"message": message}
         if outcome is not None:
             body["outcome"] = outcome
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/supervisor/notes/{note}/replies",
+            f"/v1/sessions/{_seg(self.session_id)}/supervisor/notes/{note}/replies",
             headers=self._auth,
             json=body,
         )
@@ -329,7 +334,7 @@ class Participant:
         — pick one or the other for a given client.
         """
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/participants/me/inbox/drain",
+            f"/v1/sessions/{_seg(self.session_id)}/participants/me/inbox/drain",
             headers=self._auth,
         )
         _raise_for_status(r)
@@ -382,7 +387,7 @@ class Participant:
             connect=10.0,
         )
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/participants/me/inbox/wait",
+            f"/v1/sessions/{_seg(self.session_id)}/participants/me/inbox/wait",
             headers=self._auth,
             json=body,
             timeout=per_call_timeout,
@@ -457,7 +462,7 @@ class Participant:
             if val is not None:
                 body[key] = val
         r = await self._owner._http.post(
-            f"/v1/sessions/{self.session_id}/agents", json=body, headers=self._auth
+            f"/v1/sessions/{_seg(self.session_id)}/agents", json=body, headers=self._auth
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -468,7 +473,7 @@ class Participant:
         ``runtime_unavailable``) or stopped (``reason``, e.g. ``session_cold``
         or ``runtime_failed``), with launcher_id, machine, owner and own."""
         r = await self._owner._http.get(
-            f"/v1/sessions/{self.session_id}/agents/{quote(launch_id, safe='')}",
+            f"/v1/sessions/{_seg(self.session_id)}/agents/{_seg(launch_id)}",
             headers=self._auth,
         )
         _raise_for_status(r)
@@ -487,7 +492,7 @@ class Participant:
         """
         request = self._owner._http.build_request(
             "DELETE",
-            f"/v1/sessions/{self.session_id}/participants/me",
+            f"/v1/sessions/{_seg(self.session_id)}/participants/me",
             headers=self._auth,
             json={"feedback": feedback} if feedback is not None else None,
         )
@@ -523,7 +528,7 @@ class Participant:
         """
         ws_base = _ws_base(self._owner.base_url)
         url = (
-            f"{ws_base}/v1/sessions/{self.session_id}/participants/me/events"
+            f"{ws_base}/v1/sessions/{_seg(self.session_id)}/participants/me/events"
             f"?token={self.token}"
         )
         connect = self._owner._ws_connect or websockets.connect
@@ -710,7 +715,7 @@ class SessionWeaveClient:
     async def revoke_my_token(self, token_id: str) -> None:
         """Revoke one of the account's tokens by ``token_id``."""
         r = await self._http.delete(
-            f"/v1/me/tokens/{quote(token_id, safe='')}", headers=self._account_auth()
+            f"/v1/me/tokens/{_seg(token_id)}", headers=self._account_auth()
         )
         _raise_for_status(r)
 
@@ -894,7 +899,7 @@ class SessionWeaveClient:
 
     async def my_token_networks(self, token_id: str) -> dict[str, Any]:
         """``{"network_policy", "approved_networks"}`` of one of the account's tokens."""
-        return await self._me("GET", f"/v1/me/tokens/{quote(token_id, safe='')}/networks")
+        return await self._me("GET", f"/v1/me/tokens/{_seg(token_id)}/networks")
 
     async def set_my_token_networks(
         self,
@@ -907,7 +912,7 @@ class SessionWeaveClient:
         body: dict[str, Any] = {}
         _add_networks(body, network_policy, approved_networks)
         return await self._me(
-            "PUT", f"/v1/me/tokens/{quote(token_id, safe='')}/networks", body
+            "PUT", f"/v1/me/tokens/{_seg(token_id)}/networks", body
         )
 
     async def my_network_approvals(self) -> dict[str, Any]:
@@ -918,14 +923,14 @@ class SessionWeaveClient:
         """Approve a pending network (``scope``: ``"ip"`` or ``"network"``)."""
         return await self._me(
             "POST",
-            f"/v1/me/network-approvals/{quote(approval_id, safe='')}/approve",
+            f"/v1/me/network-approvals/{_seg(approval_id)}/approve",
             {"scope": scope},
         )
 
     async def deny_my_network(self, approval_id: str) -> None:
         """Deny a pending network approval (204, no body)."""
         r = await self._http.post(
-            f"/v1/me/network-approvals/{quote(approval_id, safe='')}/deny",
+            f"/v1/me/network-approvals/{_seg(approval_id)}/deny",
             headers=self._account_auth(),
         )
         _raise_for_status(r)
@@ -988,7 +993,7 @@ class SessionWeaveClient:
         """One account with its tokens."""
         return dict(
             await self._admin(
-                "GET", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+                "GET", admin_token, f"/v1/accounts/{_seg(account_id)}"
             )
         )
 
@@ -1012,7 +1017,7 @@ class SessionWeaveClient:
             body["contact"] = contact
         return dict(
             await self._admin(
-                "PATCH", admin_token, f"/v1/accounts/{quote(account_id, safe='')}", body
+                "PATCH", admin_token, f"/v1/accounts/{_seg(account_id)}", body
             )
         )
 
@@ -1022,7 +1027,7 @@ class SessionWeaveClient:
         """Delete an account and its sessions: ``{"deleted_sessions": n}``."""
         return dict(
             await self._admin(
-                "DELETE", admin_token, f"/v1/accounts/{quote(account_id, safe='')}"
+                "DELETE", admin_token, f"/v1/accounts/{_seg(account_id)}"
             )
         )
 
@@ -1043,7 +1048,7 @@ class SessionWeaveClient:
         _add_networks(body, network_policy, approved_networks)
         return dict(
             await self._admin(
-                "POST", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/tokens", body
+                "POST", admin_token, f"/v1/accounts/{_seg(account_id)}/tokens", body
             )
         )
 
@@ -1079,7 +1084,7 @@ class SessionWeaveClient:
         """Pending network approvals of an account."""
         return dict(
             await self._admin(
-                "GET", admin_token, f"/v1/accounts/{quote(account_id, safe='')}/network-approvals"
+                "GET", admin_token, f"/v1/accounts/{_seg(account_id)}/network-approvals"
             )
         )
 
@@ -1091,8 +1096,8 @@ class SessionWeaveClient:
             await self._admin(
                 "POST",
                 admin_token,
-                f"/v1/accounts/{quote(account_id, safe='')}/network-approvals/"
-                f"{quote(approval_id, safe='')}/approve",
+                f"/v1/accounts/{_seg(account_id)}/network-approvals/"
+                f"{_seg(approval_id)}/approve",
                 {"scope": scope},
             )
         )
@@ -1104,8 +1109,8 @@ class SessionWeaveClient:
         await self._admin(
             "POST",
             admin_token,
-            f"/v1/accounts/{quote(account_id, safe='')}/network-approvals/"
-            f"{quote(approval_id, safe='')}/deny",
+            f"/v1/accounts/{_seg(account_id)}/network-approvals/"
+            f"{_seg(approval_id)}/deny",
         )
 
     async def admin_account_events(
@@ -1133,7 +1138,7 @@ class SessionWeaveClient:
     ) -> None:
         """Revoke an account token."""
         r = await self._http.delete(
-            f"/v1/accounts/{quote(account_id, safe='')}/tokens/{quote(token_id, safe='')}",
+            f"/v1/accounts/{_seg(account_id)}/tokens/{_seg(token_id)}",
             headers=_bearer(admin_token),
         )
         _raise_for_status(r)
@@ -1146,7 +1151,7 @@ class SessionWeaveClient:
         deletion the session and its events are purged from the relay.
         """
         r = await self._http.request(
-            "DELETE", f"/v1/sessions/{session_id}", headers=_bearer(token),
+            "DELETE", f"/v1/sessions/{_seg(session_id)}", headers=_bearer(token),
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -1156,7 +1161,7 @@ class SessionWeaveClient:
     ) -> dict[str, Any]:
         """Replace the session's purpose. Creator (or admin) token only."""
         r = await self._http.patch(
-            f"/v1/sessions/{session_id}/purpose",
+            f"/v1/sessions/{_seg(session_id)}/purpose",
             headers=_bearer(creator_token),
             json={"purpose": purpose},
         )
@@ -1167,7 +1172,7 @@ class SessionWeaveClient:
         """Mint a fresh join token (15 min, multi-use). Returns
         ``{join_token, expires_at, invite_url, invite_link}``."""
         r = await self._http.post(
-            f"/v1/sessions/{session_id}/join-tokens", headers=_bearer(creator_token),
+            f"/v1/sessions/{_seg(session_id)}/join-tokens", headers=_bearer(creator_token),
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -1178,7 +1183,7 @@ class SessionWeaveClient:
         """Mint an additional supervisor token. Returns
         ``{token_id, supervisor_token}`` (the secret is shown once)."""
         r = await self._http.post(
-            f"/v1/sessions/{session_id}/supervisor-tokens",
+            f"/v1/sessions/{_seg(session_id)}/supervisor-tokens",
             headers=_bearer(creator_token),
         )
         _raise_for_status(r)
@@ -1189,7 +1194,7 @@ class SessionWeaveClient:
     ) -> list[dict[str, Any]]:
         """List supervisor tokens as ``[{token_id, created_at, revoked_at}]``."""
         r = await self._http.get(
-            f"/v1/sessions/{session_id}/supervisor-tokens",
+            f"/v1/sessions/{_seg(session_id)}/supervisor-tokens",
             headers=_bearer(creator_token),
         )
         _raise_for_status(r)
@@ -1200,7 +1205,7 @@ class SessionWeaveClient:
     ) -> None:
         """Revoke one supervisor token by its ``token_id``."""
         r = await self._http.delete(
-            f"/v1/sessions/{session_id}/supervisor-tokens/{token_id}",
+            f"/v1/sessions/{_seg(session_id)}/supervisor-tokens/{_seg(token_id)}",
             headers=_bearer(creator_token),
         )
         _raise_for_status(r)
@@ -1225,7 +1230,7 @@ class SessionWeaveClient:
         if message is not None:
             body["message"] = message
         r = await self._http.post(
-            f"/v1/sessions/{session_id}/supervisor/notes",
+            f"/v1/sessions/{_seg(session_id)}/supervisor/notes",
             headers=_bearer(token),
             json=body,
         )
@@ -1240,9 +1245,9 @@ class SessionWeaveClient:
         coordinator's participant token (launched agents only: those with
         ``metadata.launch_id``). Returns
         ``{removed: [...], join_tokens_invalidated: n}``."""
-        pid = quote(participant_id, safe="")
+        pid = _seg(participant_id)
         r = await self._http.delete(
-            f"/v1/sessions/{session_id}/participants/{pid}",
+            f"/v1/sessions/{_seg(session_id)}/participants/{pid}",
             headers=_bearer(token),
         )
         _raise_for_status(r)
@@ -1254,7 +1259,7 @@ class SessionWeaveClient:
         """Assign, move or clear (``None``) the session's coordinator (creator,
         owner or admin token). Returns ``{coordinator_id}``."""
         r = await self._http.put(
-            f"/v1/sessions/{session_id}/coordinator",
+            f"/v1/sessions/{_seg(session_id)}/coordinator",
             json={"participant_id": participant_id},
             headers=_bearer(token),
         )
@@ -1264,7 +1269,7 @@ class SessionWeaveClient:
     async def access(self, session_id: str, token: str) -> dict[str, Any]:
         """Introspect any valid token: returns ``{role, participant_id}``."""
         r = await self._http.get(
-            f"/v1/sessions/{session_id}/access", headers=_bearer(token),
+            f"/v1/sessions/{_seg(session_id)}/access", headers=_bearer(token),
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -1319,7 +1324,7 @@ class SessionWeaveClient:
             if pid_csv:
                 params["participant_id"] = pid_csv
         r = await self._http.get(
-            f"/v1/sessions/{session_id}/events", params=params, headers=_bearer(token),
+            f"/v1/sessions/{_seg(session_id)}/events", params=params, headers=_bearer(token),
         )
         _raise_for_status(r)
         return dict(r.json())
@@ -1327,7 +1332,7 @@ class SessionWeaveClient:
     async def describe(self, session_id: str, *, token: str) -> SessionInfo:
         """Snapshot a session. ``token``: participant, join, supervisor,
         creator or admin token."""
-        r = await self._http.get(f"/v1/sessions/{session_id}", headers=_bearer(token))
+        r = await self._http.get(f"/v1/sessions/{_seg(session_id)}", headers=_bearer(token))
         _raise_for_status(r)
         body = r.json()
         return SessionInfo(
@@ -1365,7 +1370,7 @@ class SessionWeaveClient:
         if delivery_mode is not None:
             body["delivery_mode"] = delivery_mode
         r = await self._http.post(
-            f"/v1/sessions/{session_id}/participants",
+            f"/v1/sessions/{_seg(session_id)}/participants",
             headers=_bearer(join_token),
             json=body,
         )
