@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sessionweave-sdk"
-version = "0.13.0"
+version = "0.14.0"
 description = "Async Python client for the SessionWeave broker (REST + WebSocket)"
 requires-python = ">=3.11"
 license = "Apache-2.0"

@@ -51,6 +51,38 @@ def _add_networks(
         body["approved_networks"] = approved_networks
 
 
+def _lk_path(base: str, *segments: str) -> str:
+    return "/".join([base, *(quote(x, safe="") for x in segments)])
+
+
+def _browse_params(
+    path: str | None, cursor: str | None, limit: int | None, hidden: bool
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if path is not None:
+        params["path"] = path
+    if cursor is not None:
+        params["cursor"] = cursor
+    if limit is not None:
+        params["limit"] = limit
+    if hidden:
+        params["hidden"] = "1"
+    return params
+
+
+def _process_params(
+    cursor: int | None, limit: int | None, query: str | None
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if cursor is not None:
+        params["cursor"] = cursor
+    if limit is not None:
+        params["limit"] = limit
+    if query is not None:
+        params["q"] = query
+    return params
+
+
 def _acct_tok_networks(account_id: str, token_id: str) -> str:
     return f"/v1/accounts/{quote(account_id, safe='')}/tokens/{quote(token_id, safe='')}/networks"
 
@@ -680,6 +712,158 @@ class SessionWeaveClient:
         )
         _raise_for_status(r)
         return dict(r.json())
+
+    async def _launchers(
+        self,
+        method: str,
+        path: str,
+        *,
+        own: bool,
+        body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Machines routes. ``own=True``: ``/v1/me/launchers`` with the account
+        token; ``own=False``: open-mode ``/v1/launchers``, never any credential.
+        Returns ``None`` on 204."""
+        headers = self._account_auth() if own else {}
+        r = await self._http.request(method, path, headers=headers, json=body, params=params)
+        _raise_for_status(r)
+        if r.status_code == 204:
+            return None
+        return dict(r.json())
+
+    async def _lch(self, *a: Any, **kw: Any) -> dict[str, Any]:
+        out = await self._launchers(*a, **kw)
+        return out if out is not None else {}
+
+    async def my_launchers(self) -> dict[str, Any]:
+        """The account's machines: ``{"launchers": [Machine]}``."""
+        return await self._lch("GET", "/v1/me/launchers", own=True)
+
+    async def my_launcher(self, launcher_key: str) -> dict[str, Any]:
+        """One machine plus its ``definitions`` (``[{"definition", "deploy"}]``)."""
+        return await self._lch("GET", _lk_path("/v1/me/launchers", launcher_key), own=True)
+
+    async def deploy_my_definition(
+        self, launcher_key: str, definition: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Deploy (create or update) ``definition`` (path id = ``definition["id"]``):
+        ``{"definition_id", "revision", "state"}``."""
+        return await self._lch(
+            "PUT",
+            _lk_path("/v1/me/launchers", launcher_key, "definitions", str(definition["id"])),
+            own=True,
+            body={"definition": definition},
+        )
+
+    async def remove_my_definition(self, launcher_key: str, definition_id: str) -> dict[str, Any]:
+        """Remove a deployed definition (``definition_in_use`` while it runs)."""
+        return await self._lch(
+            "DELETE",
+            _lk_path("/v1/me/launchers", launcher_key, "definitions", definition_id),
+            own=True,
+        )
+
+    async def forget_my_launcher(self, launcher_key: str) -> None:
+        """Forget an offline machine (204, no body)."""
+        await self._launchers("DELETE", _lk_path("/v1/me/launchers", launcher_key), own=True)
+
+    async def browse_my_launcher(
+        self,
+        launcher_key: str,
+        path: str | None = None,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        hidden: bool = False,
+    ) -> dict[str, Any]:
+        """List a folder on the machine: ``{"path", "entries", "next_cursor"}``."""
+        return await self._lch(
+            "GET",
+            _lk_path("/v1/me/launchers", launcher_key, "browse"),
+            own=True,
+            params=_browse_params(path, cursor, limit, hidden),
+        )
+
+    async def my_launcher_processes(
+        self,
+        launcher_key: str,
+        *,
+        cursor: int | None = None,
+        limit: int | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """The machine's processes: ``{"processes", "next_cursor"}``."""
+        return await self._lch(
+            "GET",
+            _lk_path("/v1/me/launchers", launcher_key, "processes"),
+            own=True,
+            params=_process_params(cursor, limit, query),
+        )
+
+    async def launchers(self) -> dict[str, Any]:
+        """Open mode (no credential, LAN-only trust): every machine of the broker."""
+        return await self._lch("GET", "/v1/launchers", own=False)
+
+    async def launcher(self, launcher_key: str) -> dict[str, Any]:
+        """Open mode: one machine plus its ``definitions``."""
+        return await self._lch("GET", _lk_path("/v1/launchers", launcher_key), own=False)
+
+    async def deploy_definition(
+        self, launcher_key: str, definition: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Open mode: deploy ``definition`` (see :meth:`deploy_my_definition`)."""
+        return await self._lch(
+            "PUT",
+            _lk_path("/v1/launchers", launcher_key, "definitions", str(definition["id"])),
+            own=False,
+            body={"definition": definition},
+        )
+
+    async def remove_definition(self, launcher_key: str, definition_id: str) -> dict[str, Any]:
+        """Open mode: remove a deployed definition."""
+        return await self._lch(
+            "DELETE",
+            _lk_path("/v1/launchers", launcher_key, "definitions", definition_id),
+            own=False,
+        )
+
+    async def forget_launcher(self, launcher_key: str) -> None:
+        """Open mode: forget an offline machine (204)."""
+        await self._launchers("DELETE", _lk_path("/v1/launchers", launcher_key), own=False)
+
+    async def browse_launcher(
+        self,
+        launcher_key: str,
+        path: str | None = None,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        hidden: bool = False,
+    ) -> dict[str, Any]:
+        """Open mode: list a folder on the machine."""
+        return await self._lch(
+            "GET",
+            _lk_path("/v1/launchers", launcher_key, "browse"),
+            own=False,
+            params=_browse_params(path, cursor, limit, hidden),
+        )
+
+    async def launcher_processes(
+        self,
+        launcher_key: str,
+        *,
+        cursor: int | None = None,
+        limit: int | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """Open mode: the machine's processes."""
+        return await self._lch(
+            "GET",
+            _lk_path("/v1/launchers", launcher_key, "processes"),
+            own=False,
+            params=_process_params(cursor, limit, query),
+        )
 
     async def my_token_networks(self, token_id: str) -> dict[str, Any]:
         """``{"network_policy", "approved_networks"}`` of one of the account's tokens."""
