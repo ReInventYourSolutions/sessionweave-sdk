@@ -134,3 +134,59 @@ async def test_open_mode_methods_send_no_credentials() -> None:
         f"/v1/launchers/{KEY}/processes",
     ]
     assert all("authorization" not in r.headers for r in seen)
+
+
+@pytest.mark.asyncio
+async def test_processes_cursor_accepts_digit_string() -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen) as c:
+        await c.my_launcher_processes(KEY, cursor="42")
+        await c.launcher_processes(KEY, cursor=0)
+    assert dict(seen[0].url.params) == {"cursor": "42"}
+    assert dict(seen[1].url.params) == {"cursor": "0"}
+    async with _client([]) as c:
+        for bad in ("abc", "", "-1", "4 2"):
+            with pytest.raises(ValueError, match="cursor"):
+                await c.my_launcher_processes(KEY, cursor=bad)
+
+
+@pytest.mark.asyncio
+async def test_path_and_query_values_are_encoded() -> None:
+    seen: list[httpx.Request] = []
+    odd = "a b/c?d#e&f=g%h"
+    async with _client(seen) as c:
+        await c.my_launcher(odd)
+        await c.remove_my_definition(KEY, odd)
+        await c.browse_my_launcher(KEY, "/srv/my dir&x=1#f?", cursor="a&b=c")
+        await c.my_launcher_processes(KEY, query="ng inx&a=b#c")
+    enc = "a%20b%2Fc%3Fd%23e%26f%3Dg%25h"
+    assert seen[0].url.raw_path.decode() == f"/v1/me/launchers/{enc}"
+    assert seen[1].url.raw_path.decode() == f"/v1/me/launchers/{KEY}/definitions/{enc}"
+    assert dict(seen[2].url.params) == {"path": "/srv/my dir&x=1#f?", "cursor": "a&b=c"}
+    assert "#" not in seen[2].url.raw_path.decode()
+    assert dict(seen[3].url.params) == {"q": "ng inx&a=b#c"}
+    assert seen[3].url.raw_path.decode().count("?") == 1
+
+
+@pytest.mark.asyncio
+async def test_open_mode_deploy_body_and_no_credentials() -> None:
+    seen: list[httpx.Request] = []
+    d = {"id": "obs/x", "runtime": "claude"}
+    async with _client(seen, token="acct") as c:
+        await c.deploy_definition(KEY, d)
+    assert seen[0].method == "PUT"
+    assert _body(seen[0]) == {"definition": d}
+    assert seen[0].url.raw_path.decode() == f"/v1/launchers/{KEY}/definitions/obs%2Fx"
+    assert "authorization" not in seen[0].headers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("definition", [{}, {"id": ""}, {"id": None}, {"id": "  "}])
+async def test_deploy_requires_definition_id(definition: dict[str, Any]) -> None:
+    seen: list[httpx.Request] = []
+    async with _client(seen) as c:
+        with pytest.raises(ValueError, match="id"):
+            await c.deploy_my_definition(KEY, definition)
+        with pytest.raises(ValueError, match="id"):
+            await c.deploy_definition(KEY, definition)
+    assert seen == []

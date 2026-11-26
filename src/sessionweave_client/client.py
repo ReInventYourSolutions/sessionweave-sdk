@@ -70,12 +70,24 @@ def _browse_params(
     return params
 
 
+def _definition_id(definition: dict[str, Any]) -> str:
+    did = definition.get("id")
+    if not isinstance(did, str) or not did.strip():
+        raise ValueError("definition must have a non-empty string 'id'")
+    return did
+
+
 def _process_params(
-    cursor: int | None, limit: int | None, query: str | None
+    cursor: int | str | None, limit: int | None, query: str | None
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if cursor is not None:
-        params["cursor"] = cursor
+        if isinstance(cursor, str):
+            if not (cursor.isascii() and cursor.isdigit()):
+                raise ValueError("cursor must be an int or a digit string")
+        elif isinstance(cursor, bool) or cursor < 0:
+            raise ValueError("cursor must be an int or a digit string")
+        params["cursor"] = str(cursor)
     if limit is not None:
         params["limit"] = limit
     if query is not None:
@@ -732,8 +744,16 @@ class SessionWeaveClient:
             return None
         return dict(r.json())
 
-    async def _lch(self, *a: Any, **kw: Any) -> dict[str, Any]:
-        out = await self._launchers(*a, **kw)
+    async def _lch(
+        self,
+        method: str,
+        path: str,
+        *,
+        own: bool,
+        body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        out = await self._launchers(method, path, own=own, body=body, params=params)
         return out if out is not None else {}
 
     async def my_launchers(self) -> dict[str, Any]:
@@ -751,7 +771,7 @@ class SessionWeaveClient:
         ``{"definition_id", "revision", "state"}``."""
         return await self._lch(
             "PUT",
-            _lk_path("/v1/me/launchers", launcher_key, "definitions", str(definition["id"])),
+            _lk_path("/v1/me/launchers", launcher_key, "definitions", _definition_id(definition)),
             own=True,
             body={"definition": definition},
         )
@@ -789,7 +809,7 @@ class SessionWeaveClient:
         self,
         launcher_key: str,
         *,
-        cursor: int | None = None,
+        cursor: int | str | None = None,
         limit: int | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
@@ -815,7 +835,7 @@ class SessionWeaveClient:
         """Open mode: deploy ``definition`` (see :meth:`deploy_my_definition`)."""
         return await self._lch(
             "PUT",
-            _lk_path("/v1/launchers", launcher_key, "definitions", str(definition["id"])),
+            _lk_path("/v1/launchers", launcher_key, "definitions", _definition_id(definition)),
             own=False,
             body={"definition": definition},
         )
@@ -853,7 +873,7 @@ class SessionWeaveClient:
         self,
         launcher_key: str,
         *,
-        cursor: int | None = None,
+        cursor: int | str | None = None,
         limit: int | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
