@@ -154,9 +154,9 @@ async def test_revoke_my_token_returns_none_and_quotes_id() -> None:
     async with _client(
         seen, account_token="acct-tok", response=httpx.Response(204)
     ) as c:
-        assert await c.revoke_my_token("a/b") is None
+        assert await c.revoke_my_token("a b") is None
     assert seen[0].method == "DELETE"
-    assert seen[0].url.raw_path == b"/v1/me/tokens/a%2Fb"
+    assert seen[0].url.raw_path == b"/v1/me/tokens/a%20b"
 
 
 @pytest.mark.asyncio
@@ -235,9 +235,9 @@ async def test_admin_methods(
 async def test_admin_revoke_account_token_204_and_quoting() -> None:
     seen: list[httpx.Request] = []
     async with _client(seen, response=httpx.Response(204)) as c:
-        assert await c.admin_revoke_account_token("adm", "a/1", "t 2") is None
+        assert await c.admin_revoke_account_token("adm", "a 1", "t 2") is None
     assert seen[0].method == "DELETE"
-    assert seen[0].url.raw_path == b"/v1/accounts/a%2F1/tokens/t%202"
+    assert seen[0].url.raw_path == b"/v1/accounts/a%201/tokens/t%202"
 
 
 @pytest.mark.asyncio

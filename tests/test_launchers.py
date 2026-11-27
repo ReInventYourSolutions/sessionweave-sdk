@@ -65,13 +65,13 @@ async def test_launch_agent_bodies_and_status() -> None:
     async with c:
         out = await p.launch_agent(task="do it", domain="web", role="coder")
         await p.launch_agent(task="t", launcher_id="L", profile_id="P")
-        await p.launch_status("lch/1")
+        await p.launch_status("lch 1")
     assert out == {"launch_id": "lch_1", "status": "pending"}
     assert seen[0].method == "POST" and seen[0].url.raw_path == b"/v1/sessions/s1/agents"
     assert _body(seen[0]) == {"task": "do it", "domain": "web", "role": "coder"}
     assert _body(seen[1]) == {"task": "t", "launcher_id": "L", "profile_id": "P"}
     assert seen[2].method == "GET"
-    assert seen[2].url.raw_path == b"/v1/sessions/s1/agents/lch%2F1"
+    assert seen[2].url.raw_path == b"/v1/sessions/s1/agents/lch%201"
     assert seen[2].headers["authorization"] == "Bearer tok"
 
 

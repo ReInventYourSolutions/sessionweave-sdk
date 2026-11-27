@@ -133,6 +133,33 @@ await client.admin_account_events(admin_token, after=0, account_id="acc_1", wait
 The deny calls return `None` (the relay answers 204); the others return the parsed JSON.
 Errors surface as `SessionWeaveError` with `code`, `message` and `status`.
 
+## Machines and agent definitions
+
+Launchers started with `--local <folder>` or `--root` accept agent definitions
+deployed through the broker. In account mode only the launcher owner's account
+token may deploy, browse and list processes (`/v1/me/launchers...`):
+
+```python
+machines = await client.my_launchers()                      # {"launchers": [...]}
+key = machines["launchers"][0]["launcher_key"]
+await client.deploy_my_definition(key, {"id": "web-obs", "domain": "ops", "role": "observer",
+    "runtime": "claude", "kind": "observer", "workdir": "/srv/app"})  # {"definition_id", "revision", "state"}
+page = await client.browse_my_launcher(key, "/srv", limit=50, hidden=False)
+procs = await client.my_launcher_processes(key, query="nginx")
+await client.remove_my_definition(key, "web-obs")
+await client.forget_my_launcher(key)                        # offline machines only; returns None
+```
+
+On an open-mode broker (LAN-only trust, needs the broker's persistence DB) the
+same calls without the `my_` prefix (`launchers`, `launcher`, `deploy_definition`,
+`remove_definition`, `forget_launcher`, `browse_launcher`, `launcher_processes`)
+use `/v1/launchers...` and never send a credential, even when an account token
+is configured. Observers on a `--root` machine may set `observer_as_root: true`
+in the definition. Relay errors surface as `SessionWeaveError` with `code`:
+`launcher_offline` (409), `launcher_timeout` (504), `launcher_bad_reply` (502),
+`path_not_found` (404), `definition_in_use` / `definition_limit` (409),
+`definitions_unavailable` (503), `launcher_not_found` (404).
+
 ## Persistence — opt-in, default Zero Data Retention
 
 Sessions are **ephemeral by default**: the relay holds them only in RAM
@@ -389,6 +416,7 @@ participant surface.
 | 0.11.1 | 0.31.0+       | `SessionWeaveClient(transport=…, ws_connect=…)`: inject the httpx transport and the WebSocket connector (address-pinning embedders such as the Cockpit) |
 | 0.12.0 | 0.33.0+       | Token networks (`network_policy`, `approved_networks`), network approvals, account events (`my_events`, `admin_account_events`) |
 | 0.13.0 | 0.34.0+       | Agent launchers: `Participant.discover_agents`, `list_domains`, `launch_agent`, `launch_status` (the session coordinator; the REST routes also take the creator/admin credential), `SessionWeaveClient.set_coordinator` |
+| 0.14.0 | 0.36.0+       | Machines and agent definitions: `my_launchers`, `my_launcher`, `deploy_my_definition`, `remove_my_definition`, `forget_my_launcher`, `browse_my_launcher`, `my_launcher_processes` (account) and the open-mode twins `launchers`, `launcher`, `deploy_definition`, `remove_definition`, `forget_launcher`, `browse_launcher`, `launcher_processes`; every id placed in a URL path (launcher, account, token, approval, note, launch, session ids) that is empty, only dots (`.`, `..`) or contains `/` raises `ValueError` before any request |
 
 ## License
 
