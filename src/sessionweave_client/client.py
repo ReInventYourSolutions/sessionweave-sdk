@@ -780,7 +780,7 @@ class SessionWeaveClient:
         self, launcher_key: str, definition: dict[str, Any]
     ) -> dict[str, Any]:
         """Deploy (create or update) ``definition`` (path id = ``definition["id"]``):
-        ``{"definition_id", "revision", "state"}``."""
+        ``{"definition_id", "revision", "state", "warnings"}`` (``warnings`` from broker 0.36.0)."""
         return await self._lch(
             "PUT",
             _lk_path("/v1/me/launchers", launcher_key, "definitions", _definition_id(definition)),
